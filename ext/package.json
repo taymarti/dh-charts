@@ -10,14 +10,17 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@tradingview/lwc-plugin-user-price-lines": "1.0.0"
+    "@tradingview/lwc-plugin-user-price-lines": "file:../vendor/tradingview-lwc-plugin-user-price-lines-1.0.0.tgz"
   },
   "devDependencies": {
     "typescript": "~5.7.2",
-    "lightweight-charts": "5.2.0",
+    "lightweight-charts": "file:../vendor/lightweight-charts-5.2.0.tgz",
     "@deephaven/jsapi-types": "~41.11.0"
   },
   "peerDependencies": {
     "lightweight-charts": "5.2.0"
+  },
+  "overrides": {
+    "fancy-canvas": "file:../vendor/fancy-canvas-2.1.0.tgz"
   }
 }

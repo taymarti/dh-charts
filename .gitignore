@@ -1,6 +1,13 @@
 # dependencies and build output
-node_modules/
+# node_modules is ignored except the Lightweight Charts packages, which are committed resolved (and
+# vendored as tarballs in vendor/) for environments whose package mirror lacks them
+**/node_modules/*
+!**/node_modules/lightweight-charts/
+!**/node_modules/fancy-canvas/
+!**/node_modules/@tradingview/
 dist/
+!**/node_modules/lightweight-charts/dist/
+!**/node_modules/@tradingview/*/dist/
 dh-plugin/src/dh_chart_ext/_js/dist/
 __pycache__/
 *.egg-info/
