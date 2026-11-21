@@ -1,3 +1,0 @@
-*.tgz binary
-# committed third-party packages: keep them byte-identical to what npm published
-**/node_modules/** -text

@@ -9,7 +9,7 @@
     "preview": "vite preview --port 4040"
   },
   "dependencies": {
-    "lightweight-charts": "file:../../vendor/lightweight-charts-5.2.0.tgz",
+    "lightweight-charts": "5.2.0",
     "plotly.js-dist-min": "3.1.0",
     "react": "19.1.0",
     "react-dom": "19.1.0"
@@ -21,8 +21,5 @@
     "@vitejs/plugin-react": "^4.3.4",
     "typescript": "~5.7.2",
     "vite": "^6.0.7"
-  },
-  "overrides": {
-    "fancy-canvas": "file:../../vendor/fancy-canvas-2.1.0.tgz"
   }
 }

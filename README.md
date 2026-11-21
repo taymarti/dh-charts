@@ -159,23 +159,6 @@ python -m build --wheel plugins/tradingview-lightweight
 .venv\Scripts\python -m pip install --force-reinstall --no-deps <path to the wheel>
 ```
 
-## Lightweight Charts packages are in the repo
-
-Some development environments' package mirrors don't carry the Lightweight Charts packages, so
-everything LWC-related resolves from this repo, never from a registry:
-
-- `vendor/` holds the published tarballs: `lightweight-charts` 5.2.0, its dependency `fancy-canvas`
-  2.1.0, and `@tradingview/lwc-plugin-user-price-lines` 1.0.0. Each `package.json` points at them
-  (`file:../vendor/...`, plus an `overrides` entry for `fancy-canvas`), so `npm ci` installs them from
-  the repo. Checked with the registry unreachable and an empty npm cache.
-- Their installed copies under each package's `node_modules/` are committed too (`.gitignore`
-  ignores every other package), byte-identical to the tarballs (`.gitattributes`), for use without
-  any install step.
-
-Everything else (React, Vite, `@deephaven/*`) still comes from your registry. To add or upgrade an
-LWC package: `npm pack <name>@<version> --pack-destination vendor`, point the `package.json` entries
-at the new tarball, `npm install` in each package, and commit the tarball and the `node_modules` copies.
-
 ## Run it
 
 ```powershell
