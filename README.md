@@ -106,6 +106,8 @@ whenever the plugin reconfigures its series. An extension is
 |---|---|---|
 | Crosshair sync across every chart (same time, each chart's own price) | ours (`ext/src/extensions.ts`) | Works in both hosts |
 | Persistent price lines ("+" at the right edge; Shift+click deletes, Ctrl+click shares) | official `@tradingview/lwc-plugin-user-price-lines` 1.0.0, bound to the annotations table (`ext/src/persistent-price-lines.ts`, `dh_chart_ext/store.py`) | Verified in all three groups: saved per user, survive chart rebuilds and server restarts (parquet), others' shared lines in blue with the owner's name, soft delete |
+| Drawing tools: horizontal ray, trend line (palette at top left; click to select, drag line or handle, Delete removes, Ctrl+click shares, Esc cancels; weak magnet to OHLC) | ours (`ext/src/drawings.ts`), saved as kind `drawing` | Verified in all three groups: saved per user, carried across resolutions (points are time + price), handle and whole-line drags, soft delete |
+| Workspace settings (symbol, resolution, range, type, studies, scale) | `dh_chart_ext.store.load_settings` / `save_settings`, per (`layout`, `user`) | Verified: restored after reload and server restart |
 | Session/time-range shading | ours (`ext/src/lwc-plugins/time-range-shading.ts`) | Works in both hosts |
 
 ## Findings that shape the design
@@ -189,10 +191,10 @@ dashboard); `perf/README.md` has the benchmark.
 
 ## Next
 
-1. Persistence (P) is done for price lines (`chart_annotations`; owner is client-supplied on Community, use authenticated users + row ACLs on Enterprise). Still to persist: workspace state (resolution, studies, range reset on reload).
+1. Persistence (P) is done: price lines, drawings, workspace settings. Owner is client-supplied on Community; use authenticated users + row ACLs on Enterprise.
 2. C3 for group C: a toolbar kit and a table-to-LWC adapter (added and modified rows, time-zone
    formatting), from `RawChart.tsx` and the benchmark client.
-3. Drawing tools (trend line, rectangle, horizontal ray, Fibonacci) positioned by time and price.
+3. More drawing tools on the same framework: rectangle, Fibonacci retracement, vertical line, text note. Drawing points off the data (weekend gaps) drift, since off-data times use a linear axis.
 4. Propose the fork's two changes upstream, along with the per-pane scale mode and null-as-gap
    issues.
 5. Steady-state cost of `ws_grid` under the benchmark, and the plugin overhead still left at a 100 ms

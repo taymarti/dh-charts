@@ -8,7 +8,7 @@
  *
  *   ?prefix=tvl1s_            published chart fields are <prefix><SYM>   (default tvl1s_: 1-second candles)
  *   &n=16                     charts in the grid                         (default 16)
- *   &ext=sync,lines,sessions  extensions to attach; ext= (empty) for none (default all three)
+ *   &ext=sync,lines,sessions,draw  extensions to attach; ext= (empty) for none (default all four)
  *   &user=alice               who annotations are saved as (default: a per-browser id)
  *   &annotations=chart_annotations   the published annotations table (default chart_annotations)
  *
@@ -49,7 +49,7 @@ const WIDGET_TYPE = q.get('type') ?? 'deephaven.ui.Element';
 /** who this page writes annotations as (Community has no user identity): ?user=, else a per-browser id */
 const USER = q.get('user') ?? browserOwner();
 const ANNOTATIONS = q.get('annotations') ?? 'chart_annotations';
-const EXT = (q.get('ext') ?? 'sync,lines,sessions').split(',').filter(Boolean) as ExtensionName[];
+const EXT = (q.get('ext') ?? 'sync,lines,sessions,draw').split(',').filter(Boolean) as ExtensionName[];
 
 /**
  * Provide the page's annotation store from the published annotations table, if the server has one:

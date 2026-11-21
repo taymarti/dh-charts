@@ -6,7 +6,7 @@
  *
  *   ?raw=bars_1m&sym=ES&studies=EMA_20,BB_20_2_Upper,BB_20_2_Lower
  *
- * Price lines persist through the same annotations table as the other front ends (bindPriceLines on
+ * Price lines and drawings persist through the same annotations table as the other front ends (bindPriceLines on
  * our own series, chart key = the symbol), so a line drawn here shows on every ES chart and vice versa.
  *
  * Bars arrive as Barrage deltas: a new bar is an added row, the forming bar a modified row; both go
@@ -25,7 +25,7 @@ import {
   type ISeriesApi,
   type UTCTimestamp,
 } from 'lightweight-charts';
-import { TimeRangeShading, alternatingBlocks, bindPriceLines, tableAnnotationStore } from '@acme/chart-ext';
+import { TimeRangeShading, alternatingBlocks, bindDrawings, bindPriceLines, tableAnnotationStore } from '@acme/chart-ext';
 
 const COLORS = ['#f7a600', '#ab47bc', '#00bcd4', '#8bc34a'];
 
@@ -77,7 +77,9 @@ export function RawChart({
         if (closed) return at.close();
         const store = tableAnnotationStore(dh, at, user);
         const unbind = bindPriceLines(chart, candles, store, sym);
+        const unbindDrawings = bindDrawings(chart, candles, store, sym, el.current!);
         unbindLines = () => {
+          unbindDrawings();
           unbind();
           store.close();
           at.close();
