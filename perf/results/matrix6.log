@@ -1,0 +1,13 @@
+
+=== config host-fast-tz: {"PERF_RATE":"10","PERF_HISTORY_S":"1800","PERF_FLATTEN":"1"} -DPeriodicUpdateGraph.targetCycleDurationMillis=100 -Dbarrage.minUpdateInterval=100
+ui-tvl-1s: loading ... ready in 11792 ms; warmup 5s; passive 30s ... interactive 10s ... done
+react-tvl-1s: loading ... ready in 4934 ms; warmup 5s; passive 30s ... interactive 10s ... done
+┌─────────┬────────────────┬────────┬──────┬───────────┬────────┬──────────┬────────────┬───────┬──────────┬──────┬───────────┬───────────┬─────────┬───────────────┬───────────┐
+│ (index) │ variant        │ readyS │ fps  │ p95 frame │ main % │ TBT ms/s │ renderer % │ gpu % │ server % │ KB/s │ fresh p50 │ fresh p95 │ int fps │ int p95 frame │ input p95 │
+├─────────┼────────────────┼────────┼──────┼───────────┼────────┼──────────┼────────────┼───────┼──────────┼──────┼───────────┼───────────┼─────────┼───────────────┼───────────┤
+│ 0       │ 'ui-tvl-1s'    │ 11.8   │ 31.4 │ 63        │ 62.8   │ 0        │ 90.1       │ 51.7  │ 77       │ 90.8 │ '-'       │ '-'       │ 40.7    │ 21.6          │ 552       │
+│ 1       │ 'react-tvl-1s' │ 4.9    │ 33.4 │ 41.4      │ 41.3   │ 0        │ 54.6       │ 30.4  │ 39.1     │ 62.2 │ '-'       │ '-'       │ 49.5    │ 21.3          │ 384       │
+└─────────┴────────────────┴────────┴──────┴───────────┴────────┴──────────┴────────────┴───────┴──────────┴──────┴───────────┴───────────┴─────────┴───────────────┴───────────┘
+wrote C:\Users\tc-ma\dev\deephaven-compare\perf\results\host-fast-tz.json
+
+matrix done

@@ -1,0 +1,6 @@
+# The Deephaven server environment this repo is tested with (Python 3.12, JDK 17+ in JAVA_HOME).
+deephaven-server==42.6
+deephaven-plugin-ui==0.42.2
+deephaven-plugin-plotly-express==0.20.1
+# The TradingView plugin: install our fork's build (README, "The fork"), 0.1.0+acme.1.
+# Then: pip install -e dh-plugin

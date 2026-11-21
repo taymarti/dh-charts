@@ -1,0 +1,62 @@
+
+=== config base: {"PERF_RATE":"10","PERF_HISTORY_S":"1800","PERF_FLATTEN":"0"} 
+ui-plotly: loading ... ready in 27241 ms; warmup 5s; passive 30s ... interactive 10s ... done
+ui-tvl: loading ... ready in 5336 ms; warmup 5s; passive 30s ... interactive 10s ... done
+react-plotly: loading ... ready in 31305 ms; warmup 5s; passive 30s ... interactive 10s ... done
+react-lwc: loading ... ready in 9760 ms; warmup 5s; passive 30s ... interactive 10s ... done
+┌─────────┬────────────────┬────────┬──────┬───────────┬────────┬──────────┬────────────┬───────┬──────────┬──────┬───────────┬───────────┬─────────┬───────────────┬───────────┐
+│ (index) │ variant        │ readyS │ fps  │ p95 frame │ main % │ TBT ms/s │ renderer % │ gpu % │ server % │ KB/s │ fresh p50 │ fresh p95 │ int fps │ int p95 frame │ input p95 │
+├─────────┼────────────────┼────────┼──────┼───────────┼────────┼──────────┼────────────┼───────┼──────────┼──────┼───────────┼───────────┼─────────┼───────────────┼───────────┤
+│ 0       │ 'ui-plotly'    │ 27.2   │ 1.3  │ 4075.4    │ 102.8  │ 924.9    │ 65.7       │ 19.6  │ 12.1     │ 10.7 │ 4108      │ 5374      │ 1.5     │ 3477.1        │ 3528      │
+│ 1       │ 'ui-tvl'       │ 5.3    │ 31.3 │ 41.5      │ 20     │ 16.2     │ 32.1       │ 27.1  │ 14.6     │ 16.7 │ '-'       │ '-'       │ 48.8    │ 21.4          │ 64        │
+│ 2       │ 'react-plotly' │ 31.3   │ 0.7  │ 3808.9    │ 180.2  │ 1697.8   │ 106.6      │ 37.2  │ 16.2     │ 13   │ 49241     │ 75903     │ 1.2     │ 2487.8        │ 1384      │
+│ 3       │ 'react-lwc'    │ 9.8    │ 28.6 │ 62.7      │ 27.2   │ 16.2     │ 47.3       │ 4.8   │ 5.2      │ 9    │ 882       │ 2874      │ 35.8    │ 61.9          │ 208       │
+└─────────┴────────────────┴────────┴──────┴───────────┴────────┴──────────┴────────────┴───────┴──────────┴──────┴───────────┴───────────┴─────────┴───────────────┴───────────┘
+wrote C:\Users\tc-ma\dev\deephaven-compare\perf\results\base.json
+
+=== config flat: {"PERF_RATE":"10","PERF_HISTORY_S":"1800","PERF_FLATTEN":"1"} 
+ui-plotly: loading ... ready in 31333 ms; warmup 5s; passive 30s ... interactive 10s ... done
+ui-tvl: loading ... ready in 6717 ms; warmup 5s; passive 30s ... interactive 10s ... done
+react-plotly: loading ... ready in 13143 ms; warmup 5s; passive 30s ... interactive 10s ... done
+react-lwc: loading ... ready in 8413 ms; warmup 5s; passive 30s ... interactive 10s ... done
+┌─────────┬────────────────┬────────┬──────┬───────────┬────────┬──────────┬────────────┬───────┬──────────┬──────┬───────────┬───────────┬─────────┬───────────────┬───────────┐
+│ (index) │ variant        │ readyS │ fps  │ p95 frame │ main % │ TBT ms/s │ renderer % │ gpu % │ server % │ KB/s │ fresh p50 │ fresh p95 │ int fps │ int p95 frame │ input p95 │
+├─────────┼────────────────┼────────┼──────┼───────────┼────────┼──────────┼────────────┼───────┼──────────┼──────┼───────────┼───────────┼─────────┼───────────────┼───────────┤
+│ 0       │ 'ui-plotly'    │ 31.3   │ 0.8  │ 4337.3    │ 108.2  │ 1035.1   │ 63.7       │ 20.8  │ 13.2     │ 10.8 │ 3846      │ 5820      │ 0.9     │ 4012.7        │ 4072      │
+│ 1       │ 'ui-tvl'       │ 6.7    │ 29.8 │ 42.2      │ 19.7   │ 9.5      │ 29.6       │ 27.4  │ 14.6     │ 15.3 │ '-'       │ '-'       │ 34.6    │ 41.4          │ 536       │
+│ 2       │ 'react-plotly' │ 13.1   │ 0.5  │ 3470.5    │ 108.8  │ 1046.7   │ 70.1       │ 23.5  │ 10.3     │ 11.3 │ 8180      │ 11251     │ 0.5     │ 3660.2        │ 5984      │
+│ 3       │ 'react-lwc'    │ 8.4    │ 31.9 │ 62        │ 27.2   │ 13.9     │ 49.4       │ 5.9   │ 12.3     │ 10.1 │ 700       │ 1276      │ 34.2    │ 83.1          │ 560       │
+└─────────┴────────────────┴────────┴──────┴───────────┴────────┴──────────┴────────────┴───────┴──────────┴──────┴───────────┴───────────┴─────────┴───────────────┴───────────┘
+wrote C:\Users\tc-ma\dev\deephaven-compare\perf\results\flat.json
+
+=== config short: {"PERF_RATE":"10","PERF_HISTORY_S":"120","PERF_FLATTEN":"1"} 
+ui-plotly: loading ... ready in 20331 ms; warmup 5s; passive 30s ... interactive 10s ... done
+ui-tvl: loading ... ready in 4881 ms; warmup 5s; passive 30s ... interactive 10s ... done
+react-plotly: loading ... ready in 5488 ms; warmup 5s; passive 30s ... interactive 10s ... done
+react-lwc: loading ... ready in 3819 ms; warmup 5s; passive 30s ... interactive 10s ... done
+┌─────────┬────────────────┬────────┬──────┬───────────┬────────┬──────────┬────────────┬───────┬──────────┬──────┬───────────┬───────────┬─────────┬───────────────┬───────────┐
+│ (index) │ variant        │ readyS │ fps  │ p95 frame │ main % │ TBT ms/s │ renderer % │ gpu % │ server % │ KB/s │ fresh p50 │ fresh p95 │ int fps │ int p95 frame │ input p95 │
+├─────────┼────────────────┼────────┼──────┼───────────┼────────┼──────────┼────────────┼───────┼──────────┼──────┼───────────┼───────────┼─────────┼───────────────┼───────────┤
+│ 0       │ 'ui-plotly'    │ 20.3   │ 1.1  │ 2912.5    │ 107.7  │ 1016.1   │ 67.8       │ 32.1  │ 13.2     │ 11   │ 3014      │ 4041      │ 1.2     │ 3120.5        │ 3080      │
+│ 1       │ 'ui-tvl'       │ 4.9    │ 32.8 │ 42.4      │ 16.9   │ 7.5      │ 25.9       │ 20.9  │ 21.5     │ 16.4 │ '-'       │ '-'       │ 39.8    │ 21.6          │ 64        │
+│ 2       │ 'react-plotly' │ 5.5    │ 0.5  │ 3073.8    │ 106.6  │ 1018.2   │ 65         │ 30.1  │ 13.4     │ 10.5 │ 7783      │ 9210      │ 0.8     │ 2852.7        │ 3960      │
+│ 3       │ 'react-lwc'    │ 3.8    │ 40   │ 21.6      │ 8.8    │ 0        │ 14.2       │ 5     │ 9.2      │ 9.8  │ 694       │ 953       │ 42.4    │ 21.5          │ 520       │
+└─────────┴────────────────┴────────┴──────┴───────────┴────────┴──────────┴────────────┴───────┴──────────┴──────┴───────────┴───────────┴─────────┴───────────────┴───────────┘
+wrote C:\Users\tc-ma\dev\deephaven-compare\perf\results\short.json
+
+=== config fast: {"PERF_RATE":"10","PERF_HISTORY_S":"1800","PERF_FLATTEN":"1"} -DPeriodicUpdateGraph.targetCycleDurationMillis=100 -Dbarrage.minUpdateInterval=100
+file:///C:/Users/tc-ma/dev/deephaven-compare/perf/bench/matrix.mjs:62
+    p.on('exit', c => reject(new Error(`server exited ${c}:\n${log.slice(-2000)}`)));
+                             ^
+
+Error: server exited 2:
+usage: run_server.py [-h] [--port PORT] [--heap HEAP] [--psk PSK]
+                     [--app-dir APP_DIR] [--no-app] [--jvm-arg JVM_ARG]
+                     [--classpath CLASSPATH]
+run_server.py: error: argument --jvm-arg: expected one argument
+
+    at ChildProcess.<anonymous> (file:///C:/Users/tc-ma/dev/deephaven-compare/perf/bench/matrix.mjs:62:30)
+    at ChildProcess.emit (node:events:514:28)
+    at ChildProcess._handle.onexit (node:internal/child_process:295:12)
+
+Node.js v24.20.0

@@ -1,0 +1,19 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "dh-chart-ext"
+version = "0.1.0"
+description = "Brings @acme/chart-ext (our Lightweight Charts plugins) to Deephaven TradingView charts in deephaven.ui"
+requires-python = ">=3.10"
+dependencies = ["deephaven-plugin>=0.6.0", "deephaven-plugin-utilities>=0.0.2", "deephaven-plugin-tradingview-lightweight"]
+
+# How the Deephaven server finds it: the same entry point the TradingView plugin uses
+[project.entry-points."deephaven.plugin"]
+registration_cls = "dh_chart_ext._register:ChartExtRegistration"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/dh_chart_ext"]
+# the JS build output is generated (js/: npm run build), not committed; ship it in the wheel
+artifacts = ["src/dh_chart_ext/_js/dist/*"]

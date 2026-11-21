@@ -1,0 +1,14 @@
+# dependencies and build output
+node_modules/
+dist/
+dh-plugin/src/dh_chart_ext/_js/dist/
+__pycache__/
+*.egg-info/
+.venv/
+
+# Deephaven server runtime state (run_server.py writes these in the working directory)
+layouts/
+notebooks/
+
+# local tool settings
+.claude/settings.local.json

@@ -1,0 +1,368 @@
+{
+  "tag": "flat",
+  "when": "2026-11-21T14:05:12.799Z",
+  "headed": false,
+  "passiveS": 30,
+  "interactiveS": 10,
+  "query": "",
+  "variants": {
+    "ui-plotly": {
+      "url": "http://localhost:10040/iframe/widget/?name=dash_plotly",
+      "timeToReadyMs": 31333,
+      "gpu": "ANGLE (Intel, Intel(R) Iris(R) Xe Graphics (0x000046A8) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+      "passive": {
+        "seconds": 30,
+        "fps": 0.8,
+        "frameMs": {
+          "p50": 83.4,
+          "p95": 4337.3,
+          "p99": 4352.8,
+          "max": 4352.8
+        },
+        "framesOver50ms": 14,
+        "longTasks": {
+          "count": 10,
+          "totalBlockingMsPerSec": 1035.1,
+          "max": 4287
+        },
+        "mainThreadPct": 108.2,
+        "mainThreadMsPerSec": {
+          "script": 17.7,
+          "layout": 5.7,
+          "style": 14.5,
+          "task": 1081.9
+        },
+        "cpuPctOfOneCore": {
+          "browser": 3.9,
+          "renderer": 63.7,
+          "GPU": 20.8,
+          "network.mojom.NetworkService": 1,
+          "storage.mojom.StorageService": 0,
+          "dhServer": 13.2
+        },
+        "kbReceivedPerSec": 10.8,
+        "heapMB": 287.4,
+        "freshnessMs": {
+          "n": 155,
+          "p50": 3846,
+          "p95": 5820,
+          "max": 6151
+        },
+        "inputLatencyMs": {
+          "n": 0
+        }
+      },
+      "interactive": {
+        "seconds": 16,
+        "fps": 0.9,
+        "frameMs": {
+          "p50": 82.9,
+          "p95": 4012.7,
+          "p99": 4012.7,
+          "max": 4012.7
+        },
+        "framesOver50ms": 8,
+        "longTasks": {
+          "count": 6,
+          "totalBlockingMsPerSec": 1174.5,
+          "max": 3943
+        },
+        "mainThreadPct": 122.7,
+        "mainThreadMsPerSec": {
+          "script": 17.8,
+          "layout": 6.3,
+          "style": 16.4,
+          "task": 1227.1
+        },
+        "cpuPctOfOneCore": {
+          "browser": 4,
+          "renderer": 72.8,
+          "GPU": 24.5,
+          "network.mojom.NetworkService": 1.1,
+          "storage.mojom.StorageService": 0,
+          "dhServer": 10.4
+        },
+        "kbReceivedPerSec": 11.1,
+        "heapMB": 557.8,
+        "freshnessMs": {
+          "n": 75,
+          "p50": 4379,
+          "p95": 5695,
+          "max": 5758
+        },
+        "inputLatencyMs": {
+          "n": 57,
+          "p50": 152,
+          "p95": 4072,
+          "max": 4072
+        }
+      }
+    },
+    "ui-tvl": {
+      "url": "http://localhost:10040/iframe/widget/?name=dash_tvl",
+      "timeToReadyMs": 6717,
+      "gpu": "ANGLE (Intel, Intel(R) Iris(R) Xe Graphics (0x000046A8) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+      "passive": {
+        "seconds": 30,
+        "fps": 29.8,
+        "frameMs": {
+          "p50": 20.7,
+          "p95": 42.2,
+          "p99": 478,
+          "max": 1105.9
+        },
+        "framesOver50ms": 38,
+        "longTasks": {
+          "count": 10,
+          "totalBlockingMsPerSec": 9.5,
+          "max": 92
+        },
+        "mainThreadPct": 19.7,
+        "mainThreadMsPerSec": {
+          "script": 146.4,
+          "layout": 0.1,
+          "style": 0,
+          "task": 197.1
+        },
+        "cpuPctOfOneCore": {
+          "browser": 2.8,
+          "renderer": 29.6,
+          "GPU": 27.4,
+          "network.mojom.NetworkService": 1.2,
+          "storage.mojom.StorageService": 0,
+          "dhServer": 14.6
+        },
+        "kbReceivedPerSec": 15.3,
+        "heapMB": 155.8,
+        "freshnessMs": null,
+        "inputLatencyMs": {
+          "n": 0
+        }
+      },
+      "interactive": {
+        "seconds": 10,
+        "fps": 34.6,
+        "frameMs": {
+          "p50": 20.8,
+          "p95": 41.4,
+          "p99": 537.6,
+          "max": 562.1
+        },
+        "framesOver50ms": 11,
+        "longTasks": {
+          "count": 0,
+          "totalBlockingMsPerSec": 0,
+          "max": 0
+        },
+        "mainThreadPct": 18,
+        "mainThreadMsPerSec": {
+          "script": 122.7,
+          "layout": 0,
+          "style": 0.1,
+          "task": 180.4
+        },
+        "cpuPctOfOneCore": {
+          "browser": 3.7,
+          "renderer": 27.6,
+          "GPU": 34.2,
+          "network.mojom.NetworkService": 1.1,
+          "storage.mojom.StorageService": 0,
+          "dhServer": 7.8
+        },
+        "kbReceivedPerSec": 8.5,
+        "heapMB": 291,
+        "freshnessMs": null,
+        "inputLatencyMs": {
+          "n": 254,
+          "p50": 32,
+          "p95": 536,
+          "max": 592
+        }
+      }
+    },
+    "react-plotly": {
+      "url": "http://localhost:4040/?lib=plotly&kind=line",
+      "timeToReadyMs": 13143,
+      "gpu": "ANGLE (Intel, Intel(R) Iris(R) Xe Graphics (0x000046A8) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+      "passive": {
+        "seconds": 30,
+        "fps": 0.5,
+        "frameMs": {
+          "p50": 2627.8,
+          "p95": 3470.5,
+          "p99": 3470.5,
+          "max": 3470.5
+        },
+        "framesOver50ms": 12,
+        "longTasks": {
+          "count": 12,
+          "totalBlockingMsPerSec": 1046.7,
+          "max": 3394
+        },
+        "mainThreadPct": 108.8,
+        "mainThreadMsPerSec": {
+          "script": 1067.3,
+          "layout": 3.4,
+          "style": 6.6,
+          "task": 1087.8
+        },
+        "cpuPctOfOneCore": {
+          "browser": 3.9,
+          "renderer": 70.1,
+          "GPU": 23.5,
+          "network.mojom.NetworkService": 0.7,
+          "storage.mojom.StorageService": 0,
+          "dhServer": 10.3
+        },
+        "kbReceivedPerSec": 11.3,
+        "heapMB": 272.8,
+        "freshnessMs": {
+          "n": 231,
+          "p50": 8180,
+          "p95": 11251,
+          "max": 11332
+        },
+        "inputLatencyMs": {
+          "n": 0
+        }
+      },
+      "interactive": {
+        "seconds": 14.4,
+        "fps": 0.5,
+        "frameMs": {
+          "p50": 2527.8,
+          "p95": 3660.2,
+          "p99": 3660.2,
+          "max": 3660.2
+        },
+        "framesOver50ms": 6,
+        "longTasks": {
+          "count": 7,
+          "totalBlockingMsPerSec": 1249.2,
+          "max": 3598
+        },
+        "mainThreadPct": 129.6,
+        "mainThreadMsPerSec": {
+          "script": 1269.6,
+          "layout": 4.6,
+          "style": 7.7,
+          "task": 1296.2
+        },
+        "cpuPctOfOneCore": {
+          "browser": 4.4,
+          "renderer": 79.2,
+          "GPU": 27.4,
+          "network.mojom.NetworkService": 0.8,
+          "storage.mojom.StorageService": 0,
+          "dhServer": 14.4
+        },
+        "kbReceivedPerSec": 12.3,
+        "heapMB": 312.1,
+        "freshnessMs": {
+          "n": 143,
+          "p50": 9332,
+          "p95": 11100,
+          "max": 11194
+        },
+        "inputLatencyMs": {
+          "n": 31,
+          "p50": 5984,
+          "p95": 5984,
+          "max": 5984
+        }
+      }
+    },
+    "react-lwc": {
+      "url": "http://localhost:4040/?lib=lwc&kind=line",
+      "timeToReadyMs": 8413,
+      "gpu": "ANGLE (Intel, Intel(R) Iris(R) Xe Graphics (0x000046A8) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+      "passive": {
+        "seconds": 30,
+        "fps": 31.9,
+        "frameMs": {
+          "p50": 20.8,
+          "p95": 62,
+          "p99": 455.8,
+          "max": 519
+        },
+        "framesOver50ms": 53,
+        "longTasks": {
+          "count": 28,
+          "totalBlockingMsPerSec": 13.9,
+          "max": 98
+        },
+        "mainThreadPct": 27.2,
+        "mainThreadMsPerSec": {
+          "script": 227.4,
+          "layout": 0,
+          "style": 0,
+          "task": 272.2
+        },
+        "cpuPctOfOneCore": {
+          "browser": 1.8,
+          "renderer": 49.4,
+          "GPU": 5.9,
+          "network.mojom.NetworkService": 0.7,
+          "storage.mojom.StorageService": 0,
+          "dhServer": 12.3
+        },
+        "kbReceivedPerSec": 10.1,
+        "heapMB": 602.6,
+        "freshnessMs": {
+          "n": 618,
+          "p50": 700,
+          "p95": 1276,
+          "max": 4917
+        },
+        "inputLatencyMs": {
+          "n": 0
+        }
+      },
+      "interactive": {
+        "seconds": 10,
+        "fps": 34.2,
+        "frameMs": {
+          "p50": 20.7,
+          "p95": 83.1,
+          "p99": 477.3,
+          "max": 480.4
+        },
+        "framesOver50ms": 24,
+        "longTasks": {
+          "count": 18,
+          "totalBlockingMsPerSec": 71.5,
+          "max": 184
+        },
+        "mainThreadPct": 38.7,
+        "mainThreadMsPerSec": {
+          "script": 334.4,
+          "layout": 0,
+          "style": 0,
+          "task": 386.7
+        },
+        "cpuPctOfOneCore": {
+          "browser": 3.3,
+          "renderer": 76.3,
+          "GPU": 11.1,
+          "network.mojom.NetworkService": 0.9,
+          "storage.mojom.StorageService": 0,
+          "dhServer": 3.7
+        },
+        "kbReceivedPerSec": 11.8,
+        "heapMB": 414.1,
+        "freshnessMs": {
+          "n": 199,
+          "p50": 664,
+          "p95": 1312,
+          "max": 1560
+        },
+        "inputLatencyMs": {
+          "n": 152,
+          "p50": 72,
+          "p95": 560,
+          "max": 560
+        }
+      }
+    }
+  }
+}

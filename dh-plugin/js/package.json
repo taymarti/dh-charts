@@ -1,0 +1,21 @@
+{
+  "name": "@acme/dh-chart-ext-js",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "build": "tsc --noEmit && vite build",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@acme/chart-ext": "file:../../ext",
+    "lightweight-charts": "5.2.0"
+  },
+  "devDependencies": {
+    "@deephaven/plugin": "^1.30.0",
+    "@types/react": "^18.3.12",
+    "react": "^18.3.1",
+    "typescript": "~5.7.2",
+    "vite": "^6.0.7"
+  }
+}

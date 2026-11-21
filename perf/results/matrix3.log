@@ -1,0 +1,57 @@
+
+=== config svg: {"PERF_RATE":"10","PERF_HISTORY_S":"1800","PERF_FLATTEN":"1"} 
+ui-plotly-svg: loading ... ready in 20066 ms; warmup 5s; passive 30s ... interactive 10s ... done
+┌─────────┬─────────────────┬────────┬──────┬───────────┬────────┬──────────┬────────────┬───────┬──────────┬──────┬───────────┬───────────┬─────────┬───────────────┬───────────┐
+│ (index) │ variant         │ readyS │ fps  │ p95 frame │ main % │ TBT ms/s │ renderer % │ gpu % │ server % │ KB/s │ fresh p50 │ fresh p95 │ int fps │ int p95 frame │ input p95 │
+├─────────┼─────────────────┼────────┼──────┼───────────┼────────┼──────────┼────────────┼───────┼──────────┼──────┼───────────┼───────────┼─────────┼───────────────┼───────────┤
+│ 0       │ 'ui-plotly-svg' │ 20.1   │ 14.6 │ 458.2     │ 77.2   │ 523.1    │ 94.5       │ 10.1  │ 16.7     │ 10.3 │ 549       │ 1079      │ 6       │ 807.3         │ 1272      │
+└─────────┴─────────────────┴────────┴──────┴───────────┴────────┴──────────┴────────────┴───────┴──────────┴──────┴───────────┴───────────┴─────────┴───────────────┴───────────┘
+wrote C:\Users\tc-ma\dev\deephaven-compare\perf\results\svg.json
+
+=== config bars1s: {"PERF_RATE":"10","PERF_HISTORY_S":"1800","PERF_FLATTEN":"1"} 
+ui-plotly-1s: loading ... ready in 16549 ms; warmup 5s; passive 30s ... interactive 10s ... done
+ui-tvl-1s: loading ... ready in 5095 ms; warmup 5s; passive 30s ... interactive 10s ... done
+react-plotly-1s: loading ... ready in 6089 ms; warmup 5s; passive 30s ... interactive 10s ... done
+react-lwc-1s: loading ... ready in 4814 ms; warmup 5s; passive 30s ... interactive 10s ... done
+┌─────────┬───────────────────┬────────┬──────┬───────────┬────────┬──────────┬────────────┬───────┬──────────┬──────┬───────────┬───────────┬─────────┬───────────────┬───────────┐
+│ (index) │ variant           │ readyS │ fps  │ p95 frame │ main % │ TBT ms/s │ renderer % │ gpu % │ server % │ KB/s │ fresh p50 │ fresh p95 │ int fps │ int p95 frame │ input p95 │
+├─────────┼───────────────────┼────────┼──────┼───────────┼────────┼──────────┼────────────┼───────┼──────────┼──────┼───────────┼───────────┼─────────┼───────────────┼───────────┤
+│ 0       │ 'ui-plotly-1s'    │ 16.5   │ 0.5  │ 3476.6    │ 107.2  │ 969.5    │ 116.8      │ 96.4  │ 22.1     │ 20.4 │ 2369      │ 3487      │ 0.7     │ 3475.7        │ 5416      │
+│ 1       │ 'ui-tvl-1s'       │ 5.1    │ 38.4 │ 21.5      │ 10.8   │ 0        │ 20.7       │ 12.4  │ 16       │ 12.3 │ '-'       │ '-'       │ 46.2    │ 21.4          │ 56        │
+│ 2       │ 'react-plotly-1s' │ 6.1    │ 0.5  │ 3642      │ 56     │ 493.8    │ 66.1       │ 93.5  │ 11.8     │ 18.2 │ 4646      │ 7269      │ 0.7     │ 2783.2        │ 8240      │
+│ 3       │ 'react-lwc-1s'    │ 4.8    │ 39   │ 21.4      │ 8.6    │ 0        │ 15.9       │ 6.1   │ 9.2      │ 20.2 │ 968       │ 1095      │ 45.2    │ 21.4          │ 512       │
+└─────────┴───────────────────┴────────┴──────┴───────────┴────────┴──────────┴────────────┴───────┴──────────┴──────┴───────────┴───────────┴─────────┴───────────────┴───────────┘
+wrote C:\Users\tc-ma\dev\deephaven-compare\perf\results\bars1s.json
+
+=== config bars1s-fast: {"PERF_RATE":"10","PERF_HISTORY_S":"1800","PERF_FLATTEN":"1"} -DPeriodicUpdateGraph.targetCycleDurationMillis=100 -Dbarrage.minUpdateInterval=100
+ui-plotly-1s: loading ... ready in 23855 ms; warmup 5s; passive 30s ... interactive 10s ... done
+ui-tvl-1s: loading ... ready in 5099 ms; warmup 5s; passive 30s ... interactive 10s ... done
+react-plotly-1s: loading ... node:internal/modules/run_main:107
+    triggerUncaughtException(
+    ^
+
+page.waitForFunction: Timeout 120000ms exceeded.
+    at C:\Users\tc-ma\dev\deephaven-compare\perf\bench\run.mjs:235:14 {
+  name: 'TimeoutError'
+}
+
+Node.js v24.20.0
+node:internal/errors:986
+  const err = new Error(message);
+              ^
+
+Error: Command failed: node run.mjs --variants ui-plotly-1s,ui-tvl-1s,react-plotly-1s,react-lwc-1s --tag bars1s-fast --passive 30 --interactive 10 --query interval=100
+    at genericNodeError (node:internal/errors:986:15)
+    at wrappedFn (node:internal/errors:540:14)
+    at checkExecSyncError (node:child_process:942:11)
+    at execSync (node:child_process:1014:15)
+    at file:///C:/Users/tc-ma/dev/deephaven-compare/perf/bench/matrix.mjs:79:3 {
+  status: 1,
+  signal: null,
+  output: [ null, null, null ],
+  pid: 393932,
+  stdout: null,
+  stderr: null
+}
+
+Node.js v24.20.0

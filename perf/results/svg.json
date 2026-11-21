@@ -1,0 +1,102 @@
+{
+  "tag": "svg",
+  "when": "2026-11-21T14:42:20.864Z",
+  "headed": false,
+  "passiveS": 30,
+  "interactiveS": 10,
+  "query": "",
+  "variants": {
+    "ui-plotly-svg": {
+      "url": "http://localhost:10040/iframe/widget/?name=dash_plotly_svg",
+      "timeToReadyMs": 20066,
+      "gpu": "ANGLE (Intel, Intel(R) Iris(R) Xe Graphics (0x000046A8) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+      "passive": {
+        "seconds": 30,
+        "fps": 14.6,
+        "frameMs": {
+          "p50": 20.8,
+          "p95": 458.2,
+          "p99": 686.8,
+          "max": 1040
+        },
+        "framesOver50ms": 66,
+        "longTasks": {
+          "count": 88,
+          "totalBlockingMsPerSec": 523.1,
+          "max": 678
+        },
+        "mainThreadPct": 77.2,
+        "mainThreadMsPerSec": {
+          "script": 22.5,
+          "layout": 16.8,
+          "style": 41.1,
+          "task": 771.8
+        },
+        "cpuPctOfOneCore": {
+          "browser": 2.1,
+          "renderer": 94.5,
+          "GPU": 10.1,
+          "network.mojom.NetworkService": 0.9,
+          "storage.mojom.StorageService": 0,
+          "dhServer": 16.7
+        },
+        "kbReceivedPerSec": 10.3,
+        "heapMB": 546.5,
+        "freshnessMs": {
+          "n": 492,
+          "p50": 549,
+          "p95": 1079,
+          "max": 1213
+        },
+        "inputLatencyMs": {
+          "n": 0
+        }
+      },
+      "interactive": {
+        "seconds": 10.3,
+        "fps": 6,
+        "frameMs": {
+          "p50": 21,
+          "p95": 807.3,
+          "p99": 1036.3,
+          "max": 1036.3
+        },
+        "framesOver50ms": 22,
+        "longTasks": {
+          "count": 28,
+          "totalBlockingMsPerSec": 870,
+          "max": 778
+        },
+        "mainThreadPct": 110.1,
+        "mainThreadMsPerSec": {
+          "script": 34.8,
+          "layout": 24,
+          "style": 58.3,
+          "task": 1101.4
+        },
+        "cpuPctOfOneCore": {
+          "browser": 72.2,
+          "renderer": 134.1,
+          "GPU": 14.1,
+          "network.mojom.NetworkService": 10.6,
+          "storage.mojom.StorageService": 0,
+          "dhServer": 14.1
+        },
+        "kbReceivedPerSec": 12.8,
+        "heapMB": 387.2,
+        "freshnessMs": {
+          "n": 196,
+          "p50": 975,
+          "p95": 1321,
+          "max": 1413
+        },
+        "inputLatencyMs": {
+          "n": 55,
+          "p50": 1272,
+          "p95": 1272,
+          "max": 1272
+        }
+      }
+    }
+  }
+}
