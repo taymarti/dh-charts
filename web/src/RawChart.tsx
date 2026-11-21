@@ -6,13 +6,17 @@
  *
  *   ?raw=bars_1m&sym=ES&studies=EMA_20,BB_20_2_Upper,BB_20_2_Lower
  *
+ * RawWorkspace adds @acme/chart-react's ChartToolbar on top, with plain React state: symbol, interval
+ * (which bars_<res> table), overlay indicators (which study columns), and scale. No server round trip
+ * beyond re-subscribing: the studies are the published standard set's columns.
+ *
  * Price lines and drawings persist through the same annotations table as the other front ends (bindPriceLines on
  * our own series, chart key = the symbol), so a line drawn here shows on every ES chart and vice versa.
  *
  * Bars arrive as Barrage deltas: a new bar is an added row, the forming bar a modified row; both go
  * through series.update(), which LWC handles incrementally for the last bar.
  */
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useApi } from '@deephaven/jsapi-bootstrap';
 import { useConnection } from '@deephaven/app-utils';
 import type { dh as Dh } from '@deephaven/jsapi-types';
@@ -21,11 +25,14 @@ import {
   ColorType,
   CrosshairMode,
   LineSeries,
+  PriceScaleMode,
+  type IChartApi,
   createChart,
   type ISeriesApi,
   type UTCTimestamp,
 } from 'lightweight-charts';
-import { TimeRangeShading, alternatingBlocks, bindDrawings, bindPriceLines, tableAnnotationStore } from '@acme/chart-ext';
+import { TimeRangeShading, alternatingBlocks, bindDrawings, bindLegend, bindPriceLines, tableAnnotationStore } from '@acme/chart-ext';
+import { ChartToolbar, type ToolbarOptions, type ToolbarValue } from '@acme/chart-react';
 
 const COLORS = ['#f7a600', '#ab47bc', '#00bcd4', '#8bc34a'];
 
@@ -38,16 +45,19 @@ export function RawChart({
   studies,
   annotations,
   user,
+  scale = 'normal',
 }: {
   table: string;
   sym: string;
   studies: string[];
   annotations: string;
   user: string;
+  scale?: string;
 }) {
   const dh = useApi();
   const connection = useConnection();
   const el = useRef<HTMLDivElement>(null);
+  const chartRef = useRef<IChartApi | null>(null);
 
   useEffect(() => {
     const chart = createChart(el.current!, {
@@ -57,14 +67,16 @@ export function RawChart({
       crosshair: { mode: CrosshairMode.Normal },
       timeScale: { timeVisible: true, secondsVisible: true },
     });
+    chartRef.current = chart;
     const candles = chart.addSeries(CandlestickSeries, {
       upColor: '#26a69a', downColor: '#ef5350', borderVisible: false, wickUpColor: '#26a69a', wickDownColor: '#ef5350',
     });
     const lines: ISeriesApi<'Line'>[] = studies.map((_, i) =>
       chart.addSeries(LineSeries, { color: COLORS[i % COLORS.length], lineWidth: 1, lastValueVisible: false, priceLineVisible: false }),
     );
-    // our plugin, attached directly: no Deephaven involved
+    // our plugins, attached directly: no Deephaven involved
     candles.attachPrimitive(new TimeRangeShading(alternatingBlocks(900, 'rgba(41, 98, 255, 0.12)')));
+    const unbindLegend = bindLegend(chart, candles, el.current!, sym);
 
     let closed = false;
     let cleanup = () => {};
@@ -125,9 +137,79 @@ export function RawChart({
       closed = true;
       cleanup();
       unbindLines(); // before chart.remove(): it detaches from the series
+      unbindLegend();
+      chartRef.current = null;
       chart.remove();
     };
   }, [dh, connection, name, sym, studies.join(','), annotations, user]);
 
-  return <div ref={el} className="single" />;
+  // the price scale mode follows `scale` without rebuilding the chart
+  useEffect(() => {
+    chartRef.current?.priceScale('right').applyOptions({
+      mode: scale === 'log' ? PriceScaleMode.Logarithmic : scale === 'percent' ? PriceScaleMode.Percentage : PriceScaleMode.Normal,
+    });
+  }, [scale, name, sym]);
+
+  return <div ref={el} style={{ position: 'absolute', inset: 0 }} />;
+}
+
+// ----------------------------------------------------------------------------- with the toolbar
+
+const STUDY_COLUMNS: Record<string, string[]> = {
+  EMA_20: ['EMA_20'],
+  EMA_50: ['EMA_50'],
+  SMA_20: ['SMA_20'],
+  BB_20_2: ['BB_20_2_Upper', 'BB_20_2_Mid', 'BB_20_2_Lower'],
+  VWAP: ['VWAP'],
+};
+
+function toolbarOptions(symbols: string[]): ToolbarOptions {
+  return {
+    symbols: symbols.map(s => ({ key: s, label: s })),
+    resolutions: [
+      { key: '1s', label: '1s', group: 'Seconds' },
+      { key: '5s', label: '5s', group: 'Seconds' },
+      { key: '1m', label: '1m', group: 'Minutes' },
+      { key: '5m', label: '5m', group: 'Minutes' },
+    ],
+    studies: [
+      { key: 'EMA_20', label: 'EMA 20', group: 'Moving averages' },
+      { key: 'EMA_50', label: 'EMA 50', group: 'Moving averages' },
+      { key: 'SMA_20', label: 'SMA 20', group: 'Moving averages' },
+      { key: 'BB_20_2', label: 'Bollinger Bands (20, 2)', group: 'Bands and channels' },
+      { key: 'VWAP', label: 'VWAP', group: 'Volume' },
+    ],
+    scales: true,
+  };
+}
+
+/** Group C's workspace: ChartToolbar + RawChart, all state in React. */
+export function RawWorkspace({
+  symbols,
+  annotations,
+  user,
+  initial,
+}: {
+  symbols: string[];
+  annotations: string;
+  user: string;
+  initial: ToolbarValue;
+}) {
+  const [value, setValue] = useState<ToolbarValue>(initial);
+  const studies = (value.studies ?? []).flatMap(k => STUDY_COLUMNS[k] ?? []);
+  return (
+    <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', background: '#131722' }}>
+      <ChartToolbar value={value} options={toolbarOptions(symbols)} onChange={patch => setValue(v => ({ ...v, ...patch }))} />
+      <div style={{ position: 'relative', flex: 1 }}>
+        <RawChart
+          table={`bars_${value.resolution ?? '1m'}`}
+          sym={value.symbol ?? symbols[0]}
+          studies={studies}
+          annotations={annotations}
+          user={user}
+          scale={value.scale}
+        />
+      </div>
+    </div>
+  );
 }

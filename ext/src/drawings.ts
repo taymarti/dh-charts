@@ -7,7 +7,7 @@
  *   drawingTools()                                       extension for Deephaven charts (groups A and B)
  *
  * Interaction, on the price pane:
- *   palette (top left)   pick a tool; the next click(s) place it (ray: 1 click; trend: 2 clicks)
+ *   palette (left edge)  pick a tool; the next click(s) place it (ray: 1 click; trend: 2 clicks)
  *   click a drawing      select it (handles show); drag the line or a handle to move it
  *   Delete / Backspace   delete the selected drawing        Ctrl+click: share / unshare it
  *   Esc                  cancel the tool or the selection
@@ -373,7 +373,7 @@ export function bindDrawings(
   const palette = document.createElement('div');
   palette.className = 'acme-draw-palette';
   Object.assign(palette.style, {
-    position: 'absolute', left: '6px', top: '6px', zIndex: '5', display: 'flex', gap: '2px',
+    position: 'absolute', left: '6px', top: '30px', zIndex: '5', display: 'flex', flexDirection: 'column', gap: '2px',
     background: 'rgba(19, 23, 34, 0.85)', border: '1px solid #2a2e39', borderRadius: '4px', padding: '2px',
   });
   const buttons = new Map<DrawingType, HTMLButtonElement>();
@@ -383,7 +383,7 @@ export function bindDrawings(
     b.textContent = icons[t][0];
     b.title = icons[t][1];
     Object.assign(b.style, {
-      width: '22px', height: '22px', border: 'none', borderRadius: '3px', cursor: 'pointer',
+      width: '26px', height: '26px', border: 'none', borderRadius: '3px', cursor: 'pointer',
       color: '#d1d4dc', background: 'transparent', font: '13px sans-serif', padding: '0',
     });
     b.addEventListener('mousedown', ev => ev.stopPropagation());

@@ -21,3 +21,4 @@ export {
 } from './annotations';
 export { bindPriceLines, persistentPriceLines, titleChartKey } from './persistent-price-lines';
 export { bindDrawings, drawingTools, type DrawingPoint, type DrawingType } from './drawings';
+export { bindLegend, ohlcLegend } from './legend';

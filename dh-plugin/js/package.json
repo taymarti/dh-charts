@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@acme/chart-ext": "file:../../ext",
+    "@acme/chart-react": "file:../../react",
     "lightweight-charts": "5.2.0"
   },
   "devDependencies": {

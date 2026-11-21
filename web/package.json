@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@acme/chart-ext": "file:../ext",
+    "@acme/chart-react": "file:../react",
     "@deephaven/app-utils": "^1.31.0",
     "@deephaven/components": "^1.30.0",
     "@deephaven/iris-grid": "^1.31.0",

@@ -18,6 +18,7 @@
  *
  * Or a chart from table data only, our own LWC chart (front-end group C; see RawChart.tsx):
  *   ?raw=bars_1m&sym=ES&studies=EMA_20,BB_20_2_Upper,BB_20_2_Lower
+ *   ?workspace&sym=ES                       the same with the TradingView-style toolbar (@acme/chart-react)
  */
 import { useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { useConnection } from '@deephaven/app-utils';
@@ -35,7 +36,7 @@ import {
   tableAnnotationStore,
   type ExtensionName,
 } from '@acme/chart-ext';
-import { RawChart } from './RawChart';
+import { RawChart, RawWorkspace } from './RawChart';
 
 const TVL_TYPE = 'deephaven.plot.tradingview_lightweight.TvlChart';
 const SYMS = ['ES', 'NQ', 'RTY', 'YM', 'ZN', 'ZB', 'ZF', 'ZT', 'CL', 'NG', 'GC', 'SI', '6E', '6J', 'UST10', 'BUND'];
@@ -130,6 +131,11 @@ export default function App() {
   if (RAW) {
     const studies = (q.get('studies') ?? 'EMA_20').split(',').filter(Boolean);
     return <RawChart table={RAW} sym={q.get('sym') ?? 'ES'} studies={studies} annotations={ANNOTATIONS} user={USER} />;
+  }
+  if (q.has('workspace')) {
+    // group C with the toolbar: our own charts from the published bars_<res> tables
+    const initial = { symbol: q.get('sym') ?? 'ES', resolution: '1m', studies: ['EMA_20'], scale: 'normal' };
+    return <RawWorkspace symbols={SYMS} annotations={ANNOTATIONS} user={USER} initial={initial} />;
   }
   if (WIDGET) return <SingleWidget name={WIDGET} type={WIDGET_TYPE} />;
   return <Grid />;

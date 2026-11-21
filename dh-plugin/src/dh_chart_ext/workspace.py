@@ -20,12 +20,17 @@ from deephaven.table import Table
 from deephaven.time import dh_now
 
 from .charts import price_chart, tick_chart
-from .data import STANDARD_RESOLUTIONS, STUDIES, bars, for_symbol, in_range, standard_set
+from .data import STANDARD_RESOLUTIONS, STUDIES, bars, for_symbol, in_range, resolution_seconds, standard_set
 from .store import annotations_element, load_settings, save_settings
 
 RANGES = {"5m": 300, "15m": 900, "30m": 1800, "1h": 3600, "4h": 14400, "All": None}
 CHART_TYPES = {"candle": "Candles", "bar": "Bars", "line": "Line", "area": "Area"}
-SCALES = {"normal": "Lin", "log": "Log", "percent": "%"}
+# how the toolbar's indicators dialog lists the standard studies: label and category
+STUDY_INFO = {
+    "EMA_20": ("EMA 20", "Moving averages"), "EMA_50": ("EMA 50", "Moving averages"), "SMA_20": ("SMA 20", "Moving averages"),
+    "BB_20_2": ("Bollinger Bands (20, 2)", "Bands and channels"), "VWAP": ("VWAP", "Volume"), "Volume": ("Volume", "Volume"),
+    "RSI_14": ("RSI 14", "Oscillators"),
+}
 
 
 class ChartSource:
@@ -53,11 +58,20 @@ class ChartSource:
         return standard_set(self.ticks, self.resolutions, by=self.by)
 
 
-def _first(selection, default):
-    """deephaven.ui selections arrive as a set of keys (or 'all'); take the one selected key."""
-    if isinstance(selection, str):
-        return selection if selection != "all" else default
-    return next(iter(selection), default)
+def _interval_group(resolution: str) -> str:
+    if resolution == "tick":
+        return "Ticks"
+    secs = resolution_seconds(resolution)
+    return "Seconds" if secs < 60 else "Minutes" if secs < 3600 else "Hours" if secs < 86400 else "Days"
+
+
+def toolbar_element(value: dict, options: dict, on_change):
+    """The TradingView-style toolbar (@acme/chart-react's ChartToolbar, rendered by the dh-chart-ext JS
+    plugin as `acme.chart.Toolbar`). Controlled: `value` and `options` use the component's camelCase
+    keys (symbol, resolution, range, chartType, studies, scale); `on_change(patch)` gets the changed keys."""
+    from deephaven.ui.elements import BaseElement
+
+    return BaseElement("acme.chart.Toolbar", value=value, options=options, on_change=on_change)
 
 
 @ui.component
@@ -123,31 +137,30 @@ def chart_workspace(
 
     chart = ui.use_memo(build, [sym, res, rng, ctype, chosen, scl, since])
 
-    def single(items: dict, value, setter, label):
-        return ui.action_group(
-            *[ui.item(text, key=key) for key, text in items.items()],
-            selection_mode="single", disallow_empty_selection=True, selected_keys=[value],
-            on_selection_change=lambda s: setter(_first(s, value)), density="compact", aria_label=label,
-        )
+    # the toolbar: what it offers, what is selected, and how a change comes back (a server round trip)
+    options = {
+        "symbols": [{"key": s, "label": s} for s in sorted(symbols)],
+        "resolutions": [{"key": r, "label": "Tick" if r == "tick" else r, "group": _interval_group(r)}
+                        for r in ["tick", *source.resolutions]],
+        "ranges": [{"key": k, "label": k} for k in RANGES],
+        "chartTypes": [{"key": k, "label": v} for k, v in CHART_TYPES.items()],
+        "studies": [] if res == "tick" else [
+            {"key": k, "label": STUDY_INFO.get(k, (k, None))[0], "group": STUDY_INFO.get(k, (k, None))[1]} for k in STUDIES
+        ],
+        "scales": True,
+    }
+    value = {"symbol": sym, "resolution": res, "range": rng, "chartType": ctype, "studies": list(chosen), "scale": scl}
+    setters = {"symbol": set_sym, "resolution": set_res, "range": set_rng, "chartType": set_ctype, "scale": set_scl}
 
-    res_items = {"tick": "Tick", **{r: r for r in source.resolutions}}
-    toolbar = ui.flex(
-        ui.picker(*[ui.item(s, key=s) for s in sorted(symbols)], selected_key=sym, on_selection_change=set_sym,
-                  aria_label="Symbol", width="size-1600", is_quiet=True),
-        single(res_items, res, set_res, "Resolution"),
-        single({k: k for k in RANGES}, rng, set_rng, "Range"),
-        single(CHART_TYPES, ctype, set_ctype, "Chart type"),
-        ui.action_group(
-            *[ui.item(k, key=k) for k in STUDIES],
-            selection_mode="multiple", selected_keys=list(chosen),
-            on_selection_change=lambda s: set_chosen(tuple(STUDIES) if s == "all" else tuple(k for k in STUDIES if k in s)),
-            density="compact", aria_label="Studies", is_disabled=res == "tick",
-        ),
-        single(SCALES, scl, set_scl, "Scale"),
-        # a toolbar keeps its natural height: no growing, and wrapped rows packed at the top
-        gap="size-150", wrap=True, align_items="center", align_content="start", flex_grow=0, flex_shrink=0,
-    )
+    def on_change(patch: dict):
+        for k, set_ in setters.items():
+            if k in patch:
+                set_(patch[k])
+        if "studies" in patch:
+            set_chosen(tuple(k for k in STUDIES if k in patch["studies"]))  # keep the standard order
+
+    toolbar = toolbar_element(value, options, on_change)
     parts = [toolbar, ui.view(chart, flex_grow=1, min_height="size-3000")]
     if annotations is not None:
         parts.append(annotations_element(annotations, user))  # draws nothing; feeds the chart extensions
-    return ui.flex(*parts, direction="column", gap="size-100", flex_grow=1, height="100%")
+    return ui.flex(*parts, direction="column", gap="size-0", flex_grow=1, height="100%")

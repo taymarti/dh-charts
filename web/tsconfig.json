@@ -22,6 +22,9 @@
       ],
       "@acme/chart-ext": [
         "../ext/src/index.ts"
+      ],
+      "@acme/chart-react": [
+        "../react/src/index.ts"
       ]
     }
   },

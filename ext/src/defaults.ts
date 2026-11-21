@@ -2,10 +2,11 @@ import { crosshairSync, sessionShading } from './extensions';
 import { alternatingBlocks } from './lwc-plugins/time-range-shading';
 import { persistentPriceLines } from './persistent-price-lines';
 import { drawingTools } from './drawings';
+import { ohlcLegend } from './legend';
 import type { AnnotationStore } from './annotations';
 import type { TvlExtension } from './hook';
 
-export type ExtensionName = 'sync' | 'lines' | 'sessions' | 'draw';
+export type ExtensionName = 'legend' | 'sync' | 'lines' | 'sessions' | 'draw';
 
 /**
  * The default feature set, by name. `sync` is one crosshair group shared by every chart the returned
@@ -15,11 +16,12 @@ export type ExtensionName = 'sync' | 'lines' | 'sessions' | 'draw';
  * (setPageAnnotationStore), and are plain unsaved lines until then. `draw` (drawing tools) waits for a store.
  */
 export function defaultExtensions(
-  names: Iterable<ExtensionName> = ['sync', 'lines', 'sessions', 'draw'],
+  names: Iterable<ExtensionName> = ['legend', 'sync', 'lines', 'sessions', 'draw'],
   { store }: { store?: AnnotationStore } = {},
 ): TvlExtension[] {
   const want = new Set(names);
   const exts: TvlExtension[] = [];
+  if (want.has('legend')) exts.push(ohlcLegend());
   if (want.has('sync')) exts.push(crosshairSync());
   if (want.has('lines')) exts.push(persistentPriceLines(undefined, store));
   // drawing tools need a store to save to: they appear once one is set

@@ -6,7 +6,9 @@
  *    "tvl-chart" events (our fork) and applies the default extensions to every chart on the page;
  *    the crosshair group spans them all. (deephaven.ui renders plugin objects directly, never through
  *    widget middleware, so a document listener is the one place that sees every chart.)
- * 2. It exports an element plugin: `acme.chart.Annotations`, which the workspace renders
+ * 2. It exports an element plugin with two elements. `acme.chart.Toolbar` is @acme/chart-react's
+ *    ChartToolbar (TradingView-style), driven from Python: the workspace passes value, options and an
+ *    on_change callback (dh_chart_ext.workspace.toolbar_element). `acme.chart.Annotations`, which the workspace renders
  *    (dh_chart_ext.store.annotations_element) with the annotations table. The element draws nothing; it
  *    builds an annotation store over the table and makes it the page's store, so price lines (and later
  *    drawings) persist.
@@ -14,7 +16,7 @@
  * A host that applies the extensions itself (web/, with its own per-page choices) sets
  * globalThis.__acmeChartExtHostManaged = true before plugins load, and step 1 stays out of it.
  */
-import { useEffect } from 'react';
+import React, { useEffect } from 'react';
 import { useApi } from '@deephaven/jsapi-bootstrap';
 import type { ElementPlugin } from '@deephaven/plugin';
 import {
@@ -24,6 +26,7 @@ import {
   providePageAnnotationStore,
   tableAnnotationStore,
 } from '@acme/chart-ext';
+import { ChartToolbar, type ToolbarOptions, type ToolbarValue } from '@acme/chart-react';
 
 const g = globalThis as { __acmeChartExtHostManaged?: boolean; __acmeChartExtAttached?: boolean };
 if (!g.__acmeChartExtHostManaged && !g.__acmeChartExtAttached && typeof document !== 'undefined') {
@@ -66,10 +69,15 @@ function Annotations({ table, owner }: { table: ExportedObject; owner?: string }
   return null;
 }
 
+/** The toolbar, driven by Python state: onChange is the workspace's callback (a server round trip). */
+function Toolbar({ value, options, onChange }: { value: ToolbarValue; options: ToolbarOptions; onChange: (patch: ToolbarValue) => void }) {
+  return React.createElement(ChartToolbar, { value: value ?? {}, options: options ?? {}, onChange: patch => onChange?.(patch) });
+}
+
 const plugin: ElementPlugin = {
   name: '@acme/dh-chart-ext',
   type: 'ElementPlugin',
-  mapping: { 'acme.chart.Annotations': Annotations as never },
+  mapping: { 'acme.chart.Annotations': Annotations as never, 'acme.chart.Toolbar': Toolbar as never },
 };
 
 export default plugin;

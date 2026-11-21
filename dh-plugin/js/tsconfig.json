@@ -18,8 +18,12 @@
       ],
       "@acme/chart-ext": [
         "../../ext/src/index.ts"
+      ],
+      "@acme/chart-react": [
+        "../../react/src/index.ts"
       ]
-    }
+    },
+    "jsx": "react-jsx"
   },
   "include": [
     "src"

@@ -29,7 +29,7 @@ use.
 | **L2 Workspace** | A deephaven.ui component: toolbar (symbol, resolution, range, type, studies, scale) plus an L1 chart | `dh_chart_ext.workspace` | ✓ | ? `WidgetView` of a deephaven.ui element, to be verified | ✗ |
 | **C1 LWC plugins** | Drawing tools, shading, price lines, sync: plain LWC plugins with no Deephaven dependency | `@acme/chart-ext` (`ext/src/lwc-plugins`, `extensions.ts`) | ✓ (via C2) | ✓ (via C2) | ✓ attach to your own LWC chart directly |
 | **C2 Hook** | Applies C1 to charts drawn by Deephaven's plugin | `@acme/chart-ext` (`hook.ts`) + `dh-chart-ext` | ✓ automatic | ✓ `attachTvlExtensions` | n/a |
-| **C3 React kit** | Toolbar components and a table → LWC series adapter (append/last-bar updates), for group C's own charts | `@acme/chart-react` (later) | ✗ | optional | ✓ |
+| **C3 React kit** | `ChartToolbar` (TradingView-style: symbol search, interval, chart type, indicators dialog, range, scale), controlled; next: a table → LWC series adapter | `@acme/chart-react` (`react/`) | ✓ via the `acme.chart.Toolbar` element | ✓ | ✓ |
 | **P Persistence** | Drawings, price lines and settings in a Deephaven input table (one schema) | L0 table + C1 | ✓ | ✓ | ✓ via JS API |
 
 Boundaries to keep in mind:
@@ -65,6 +65,7 @@ Findings from building it:
 |---|---|
 | `ext/` | **`@acme/chart-ext`**: our features as LWC plugins, the hook that applies them to Deephaven's charts, and the annotation store. In-repo hosts compile its source (a Vite alias); `npm pack` builds the distributable package (`dist/`), published as a tarball in [lwc-vendor](https://github.com/taymarti/lwc-vendor) `acme/` |
 | `web/` | **React host** (pattern A): Deephaven's own chart component in a standalone React app, through `WidgetView`. The plugin's JS comes from the server, so there is nothing to vendor and no npm package |
+| `react/` | **`@acme/chart-react`**: React components for trading charts, starting with `ChartToolbar`. Styles are injected by the component (no CSS build). In-repo hosts compile its source; `npm pack` builds the distributable package |
 | `dh-plugin/` | **`dh-chart-ext`**: a Python package that registers a JS plugin with the Deephaven server and brings `@acme/chart-ext` to every Deephaven web UI, deephaven.ui dashboards included |
 | (fork) | Our changes to Deephaven's plugin live in [taymarti/deephaven-plugins](https://github.com/taymarti/deephaven-plugins/tree/acme/tradingview-lightweight), branch `acme/tradingview-lightweight` (see "The fork" below) |
 | `dh-plugin/src/dh_chart_ext/` `data.py` `charts.py` `workspace.py` | The Python layers L0, L1 and L2 |
@@ -80,6 +81,19 @@ How the pieces fit:
                                       @acme/chart-ext: attachTvlExtensions(root, extensions)
                                          └─ plain LWC plugins on the real chart and series
 ```
+
+## How toolbar selections work
+
+- **deephaven.ui workspace (A, and B when it hosts the workspace):** a toolbar change is a call to the
+  workspace's Python `on_change`, over deephaven.ui's message channel. The component re-renders: it filters
+  the shared bar table to the symbol, adds the selected studies (`update_by`), applies the range, composes
+  a new chart object, and saves the settings row. The browser gets a new chart, which Deephaven's plugin
+  subscribes and draws (about 90–150 ms to the new chart, then the snapshot streams in). Each open
+  workspace owns its filtered, study-computed tables: cheap per user, but it scales with users × charts,
+  so for many users compute studies once per symbol (the L0 standard set) and have workspaces only filter.
+- **React with table data only (C):** state lives in React. A change re-subscribes: symbol and range are
+  server-side filters (JS API `applyFilter`) on the published `bars_<res>` tables; studies are their
+  precomputed columns. No Python runs per change.
 
 ## The hook
 
@@ -106,7 +120,9 @@ whenever the plugin reconfigures its series. An extension is
 |---|---|---|
 | Crosshair sync across every chart (same time, each chart's own price) | ours (`ext/src/extensions.ts`) | Works in both hosts |
 | Persistent price lines ("+" at the right edge; Shift+click deletes, Ctrl+click shares) | official `@tradingview/lwc-plugin-user-price-lines` 1.0.0, bound to the annotations table (`ext/src/persistent-price-lines.ts`, `dh_chart_ext/store.py`) | Verified in all three groups: saved per user, survive chart rebuilds and server restarts (parquet), others' shared lines in blue with the owner's name, soft delete |
-| Drawing tools: horizontal ray, trend line (palette at top left; click to select, drag line or handle, Delete removes, Ctrl+click shares, Esc cancels; weak magnet to OHLC) | ours (`ext/src/drawings.ts`), saved as kind `drawing` | Verified in all three groups: saved per user, carried across resolutions (points are time + price), handle and whole-line drags, soft delete |
+| Drawing tools: horizontal ray, trend line (vertical palette on the left edge; click to select, drag line or handle, Delete removes, Ctrl+click shares, Esc cancels; weak magnet to OHLC) | ours (`ext/src/drawings.ts`), saved as kind `drawing` | Verified in all three groups: saved per user, carried across resolutions (points are time + price), handle and whole-line drags, soft delete |
+| TradingView-style toolbar: symbol search, grouped interval menu, chart-type menu with icons, "ƒx Indicators" search dialog, range, % / log | ours (`react/src/ChartToolbar.tsx`); in deephaven.ui the `acme.chart.Toolbar` element, driven by Python state | Verified: deephaven.ui workspace and dashboard, and group C's `RawWorkspace` |
+| OHLC legend (symbol, O H L C, change from the previous close) following the crosshair | ours (`ext/src/legend.ts`) | Verified in all three groups |
 | Workspace settings (symbol, resolution, range, type, studies, scale) | `dh_chart_ext.store.load_settings` / `save_settings`, per (`layout`, `user`) | Verified: restored after reload and server restart |
 | Session/time-range shading | ours (`ext/src/lwc-plugins/time-range-shading.ts`) | Works in both hosts |
 
@@ -192,7 +208,7 @@ dashboard); `perf/README.md` has the benchmark.
 ## Next
 
 1. Persistence (P) is done: price lines, drawings, workspace settings. Owner is client-supplied on Community; use authenticated users + row ACLs on Enterprise.
-2. C3 for group C: a toolbar kit and a table-to-LWC adapter (added and modified rows, time-zone
+2. C3 for group C: the toolbar is done (`@acme/chart-react`); still to do: a table-to-LWC adapter (added and modified rows, time-zone
    formatting), from `RawChart.tsx` and the benchmark client.
 3. More drawing tools on the same framework: rectangle, Fibonacci retracement, vertical line, text note. Drawing points off the data (weekend gaps) drift, since off-data times use a linear axis.
 4. Propose the fork's two changes upstream, along with the per-pane scale mode and null-as-gap

@@ -26,6 +26,7 @@ export default defineConfig(({ mode }) => {
       alias: [
         // @acme/chart-ext from source (its npm distribution is the built dist/; see ext/package.json)
         { find: '@acme/chart-ext', replacement: fileURLToPath(new URL('../ext/src/index.ts', import.meta.url)) },
+        { find: '@acme/chart-react', replacement: fileURLToPath(new URL('../react/src/index.ts', import.meta.url)) },
         // CJS/ESM default-export interop fix; see the shim for details.
         {
           find: /^@paciolan\/remote-module-loader$/,
