@@ -204,13 +204,3 @@ dashboard); `perf/README.md` has the benchmark.
 
 Apache-2.0 (`LICENSE`, `NOTICE`), including the `@acme/chart-ext` package and the `dh-chart-ext`
 Python package. The fork of Deephaven's plugin is Apache-2.0 too (upstream's license).
-
-**Lightweight Charts attribution.** Lightweight Charts is Apache-2.0 with one extra requirement:
-applications using it must show its attribution notice ("TradingView Lightweight Charts™ Copyright
-(с) 2025 TradingView, Inc.") and a link to https://www.tradingview.com/ on a page their users can
-see. The logo on the chart itself (`attributionLogo`) is one way to meet the link requirement, not a
-requirement in itself. Deephaven's plugin turns that logo off, so:
-- the deephaven.ui workspace shows a one-line attribution under the chart (`workspace.attribution()`;
-  use it in your own deephaven.ui layouts of Deephaven TradingView charts)
-- the React host shows the same line (`TRADINGVIEW_ATTRIBUTION` from `@acme/chart-ext`)
-- `RawChart.tsx`, which draws its own chart, keeps the chart's logo on

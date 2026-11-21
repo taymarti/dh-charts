@@ -8,7 +8,6 @@ export { attachTvlExtensions, stats, type TvlChartContext, type TvlExtension, ty
 export { crosshairSync, sessionShading, userPriceLines } from './extensions';
 export { TimeRangeShading, alternatingBlocks, type RangesFor, type ShadedRange } from './lwc-plugins/time-range-shading';
 export { defaultExtensions, type ExtensionName } from './defaults';
-export { TRADINGVIEW_ATTRIBUTION } from './attribution';
 export {
   browserOwner,
   newAnnotationId,

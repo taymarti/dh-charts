@@ -42,15 +42,3 @@ body,
   box-sizing: border-box;
   background: var(--dh-color-bg, #1a171a);
 }
-
-.attribution {
-  position: fixed;
-  right: 8px;
-  bottom: 2px;
-  z-index: 10;
-  font: 11px -apple-system, 'Trebuchet MS', Roboto, sans-serif;
-  color: #787b86;
-}
-.attribution a {
-  color: #787b86;
-}
