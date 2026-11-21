@@ -425,7 +425,9 @@ def chart_pane(source: ChartSource, pane: dict, index: int, active: bool, multi:
             want = cur * 2  # scrolling back: double what is loaded
         on_pane(index, lambda p: {**p, "lookback": max(cur, want)})
 
-    shown = [s for s in pane["studies"] if s.get("visible", True)] if res != "tick" else []
+    # a spread has no volume: its Volume study is left out (and kept for when the pane shows a symbol again)
+    usable = [s for s in pane["studies"] if not (s["type"] == "Volume" and sym and is_expression(sym))]
+    shown = [s for s in usable if s.get("visible", True)] if res != "tick" else []
 
     def build():
         if sym is None:
@@ -444,7 +446,7 @@ def chart_pane(source: ChartSource, pane: dict, index: int, active: bool, multi:
         {"id": s["id"], "type": s["type"], "params": s["params"], "label": study_label(s["type"], s["params"]),
          "columns": STUDY_TYPES[s["type"]].build(s["params"]).columns(), "color": s.get("color"),
          "visible": s.get("visible", True)}
-        for s in pane["studies"]
+        for s in usable
     ] + [
         {"id": f"cmp:{c['sym']}", "label": c["sym"], "columns": [c["sym"]], "color": c["color"],
          "visible": c.get("visible", True), "kind": "compare"}

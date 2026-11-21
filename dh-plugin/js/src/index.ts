@@ -15,6 +15,10 @@
  *    (show/hide, settings, remove, reported to Python), the active-pane outline of a multi-chart layout,
  *    and the sync-group attributes the crosshair/time sync reads. `acme.chart.Watchlist` is the
  *    watchlist over a live quotes table, subscribed here; a click calls Python's on_select.
+ *    `acme.chart.Services` provides the page's stores (annotations, alerts with their toasts) and the
+ *    session calendar; `acme.chart.AlertsPanel` lists and creates alerts on the page's alert store.
+ *    The Frame also binds navigation (view window, history on demand via Python, jump to now, go
+ *    to date), the bar-close countdown and the market status.
  *
  * A host that applies the extensions itself (web/, with its own per-page choices) sets
  * globalThis.__acmeChartExtHostManaged = true before plugins load, and step 1 stays out of it.
@@ -265,7 +269,7 @@ function Frame({
       stopCountdown();
       nav.current = null;
     };
-  }, [lwc, barSeconds]);
+  }, [lwc, barSeconds, title]); // a new symbol can arrive in the same plugin chart: re-apply the view
   useEffect(() => {
     nav.current?.update({ viewWindow: viewWindow ?? null, historyComplete });
   }, [viewWindow, historyComplete]);

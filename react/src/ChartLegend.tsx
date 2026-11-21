@@ -176,7 +176,7 @@ export function ChartLegend({ chart, series, title, studies = [], studyTypes, on
           <span style={{ color }}>
             {chg >= 0 ? '+' : ''}
             {chg.toFixed(p)} ({chg >= 0 ? '+' : ''}
-            {((100 * chg) / prevClose).toFixed(2)}%)
+            {((100 * chg) / Math.abs(prevClose)).toFixed(2)}%)
           </span>
         ) : null}
       </div>

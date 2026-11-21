@@ -352,7 +352,12 @@ export function bindDrawings(
     const a = alertOf(d);
     if (a) void alerts()?.put({ ...alertSpec(d), id: a.id, op: a.op, message: a.message });
   };
-  const addPriceAlert = (price: number) => void alerts()?.put({ sym: chartKey, kind: 'price', level: price });
+  // levels at the chart's price precision (99.90, not 99.903435)
+  const tick = (price: number) => {
+    const v = parseFloat(series.priceFormatter().format(price).replace(/[^0-9.-]/g, ''));
+    return Number.isFinite(v) ? v : price;
+  };
+  const addPriceAlert = (price: number) => void alerts()?.put({ sym: chartKey, kind: 'price', level: tick(price) });
 
   const save = (d: Drawing) =>
     void store.put({ chartKey, id: d.id, kind: KIND, spec: { type: d.type, points: d.points }, shared: d.shared });

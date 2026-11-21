@@ -35,6 +35,7 @@ import {
   type UTCTimestamp,
 } from 'lightweight-charts';
 import {
+  bindAlertLines,
   bindCountdown,
   bindDrawings,
   bindLegend,
@@ -111,7 +112,8 @@ export function RawChart({
       layout: { background: { type: ColorType.Solid, color: '#131722' }, textColor: '#d1d4dc', attributionLogo: false },
       grid: { vertLines: { color: '#1e222d' }, horzLines: { color: '#1e222d' } },
       crosshair: { mode: CrosshairMode.Normal },
-      timeScale: { timeVisible: true, secondsVisible: true },
+      // minBarSpacing: let days of 1-minute bars fit the width (the default 0.5 px caps a view at ~1500 bars)
+      timeScale: { timeVisible: true, secondsVisible: true, minBarSpacing: 0.01 },
     });
     chartRef.current = chart;
     const candles = chart.addSeries(CandlestickSeries, {
@@ -128,6 +130,12 @@ export function RawChart({
     const unbindSessions = bindSessionShading(candles, sym); // the page's calendar (the `sessions` table)
     const unbindLegend = onChart ? () => {} : bindLegend(chart, candles, el.current!, sym);
     const unbindSync = bindSync(chart, candles, el.current!);
+    // the user's active price alerts, from the page's alert store (the published chart_alerts)
+    let unbindAlerts = () => {};
+    const offAlerts = onPageAlertStore(s => {
+      unbindAlerts();
+      unbindAlerts = s ? bindAlertLines(candles, s, sym) : () => {};
+    });
     // this chart holds the symbol's whole history, so navigation never needs to load more
     const navigation = bindNavigation(chart, candles, el.current!, { viewWindow: windowRef.current ?? null, historyComplete: true, settleMs: 0 });
     nav.current = navigation;
@@ -196,6 +204,8 @@ export function RawChart({
       unbindLegend();
       unbindSync();
       unbindSessions();
+      offAlerts();
+      unbindAlerts();
       navigation.dispose();
       nav.current = null;
       unbindCountdown();

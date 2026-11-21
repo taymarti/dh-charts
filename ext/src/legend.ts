@@ -59,7 +59,7 @@ export function bindLegend(chart: IChartApi, series: ISeriesApi<SeriesType>, hos
     else parts.push(v('', close));
     if (chg != null && prevClose) {
       const sign = chg >= 0 ? '+' : '';
-      parts.push(`<span style="color:${color}">${sign}${chg.toFixed(p)} (${sign}${((100 * chg) / prevClose).toFixed(2)}%)</span>`);
+      parts.push(`<span style="color:${color}">${sign}${chg.toFixed(p)} (${sign}${((100 * chg) / Math.abs(prevClose)).toFixed(2)}%)</span>`);
     }
     el.innerHTML = parts.join('&nbsp;&nbsp;');
   };

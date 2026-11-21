@@ -1,7 +1,7 @@
 {
   "name": "@acme/chart-ext",
   "private": true,
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Chart features as Lightweight Charts plugins, and the hook that applies them to Deephaven TradingView charts",
   "license": "Apache-2.0",
   "type": "module",

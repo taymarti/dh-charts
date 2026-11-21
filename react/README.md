@@ -3,13 +3,16 @@
 React components for trading charts, styled like TradingView desktop. From
 [dh-charts](https://github.com/taymarti/dh-charts).
 
-- **`ChartToolbar`**: symbol search, a grouped interval menu, a chart-type menu with icons, an
+- **`ChartToolbar`**: symbol search (optionally accepting spreads typed as expressions), compare, a grouped interval menu, a chart-type menu with icons, an
   "ƒx Indicators" search dialog, range, and % / log scale. Controlled: pass `value` and `options`,
   get changes from `onChange(patch)`. Parts whose options are missing are left out. Styles are
   injected by the component; colors are CSS variables (`--acme-tb-*`) on `.acme-tb`.
 - **`ChartLegend`**: the legend over a Lightweight Charts chart: symbol and O H L C at the crosshair
   with the change, then one row per study (value in its color; show/hide, settings dialog for
   parameters and color, remove). Pass the chart and its series; studies match series by title.
+- **`AlertsPanel`**: the user's alerts: a form for a new alert (price or a study value, crossing a
+  level), the active ones, and the log of fired ones. Data-agnostic: the host supplies rows and
+  handles create and cancel.
 - **`Watchlist`**: symbol, last, change, change %, colored, flashing on each tick; click to select.
 
 ```tsx

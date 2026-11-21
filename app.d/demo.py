@@ -38,7 +38,8 @@ from dh_chart_ext.workspace import ChartSource, chart_workspace  # noqa: E402
 
 # History before the live feed, so charts can scroll back days: a random walk per symbol that ends
 # where the live feed starts (feeds.py's base price at _start). Steps are larger in regular hours
-# (08:30-15:00 Chicago), so sessions show in the data as they do in real markets.
+# (08:30-15:00 Chicago), so sessions show in the data as they do in real markets. Sizes are scaled so a
+# minute of history trades about as much as a minute of the (denser) live feed.
 _HIST_DAYS = float(os.environ.get("DEMO_HISTORY_DAYS", "5"))
 _HIST_STEP_NS = int(float(os.environ.get("DEMO_HISTORY_STEP_S", "5")) * 1e9)
 _HIST_N = int(_HIST_DAYS * 86400e9 / _HIST_STEP_NS)
@@ -50,7 +51,7 @@ _hist = (
         "Timestamp = minus(_hist_end, (_HIST_N - K) * _HIST_STEP_NS)",
         "Mod = minuteOfDay(Timestamp, timeZone(`America/Chicago`), false)",
         "Act = Mod >= 510 && Mod < 900 ? 1.0 : 0.35",
-        "Step = (Math.random() - 0.5) * 0.12 * Act", "Size = (int) (1 + Math.random() * 30 * Act)",
+        "Step = (Math.random() - 0.5) * 0.12 * Act", "Size = (int) (1 + Math.random() * 500 * Act)",
     ])
     .update_by(cum_sum("Walk = Step"), by="Sym")
 )

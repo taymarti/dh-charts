@@ -101,7 +101,7 @@ browser to the annotations input table (`addRow`), not through Python callbacks.
   server-side filters (JS API `applyFilter`) on the published `bars_<res>` tables; studies are their
   precomputed columns. No Python runs per change.
 
-What each group gets from this round's features:
+What each group gets, feature by feature:
 
 | Feature | A deephaven.ui | B React + `WidgetView` | C React, table data |
 |---|---|---|---|
@@ -111,6 +111,31 @@ What each group gets from this round's features:
 | Multi-chart layouts (1, 2, 3, 4) with symbol / interval sync | ✓ Python state per pane | ✓ | not built yet: the parts exist (`RawChart`, `bindSync`, the toolbar's layout menu) |
 | Crosshair and time sync | ✓ by `data-acme-sync-*` attributes the frame sets | ✓ | ✓ `bindSync` (page group) |
 | Context menu, Alt+H / Alt+T / Alt+R, Ctrl+Z undo | ✓ (ext, on every chart with drawings) | ✓ | ✓ (`bindDrawings`) |
+| History: initial view window, scroll back for more, jump to now, go to date | ✓ the pane's `Lookback` grows on the server as you scroll; the chart is not rebuilt | ✓ | ✓ the chart loads the symbol's whole published history up front (no paging needed at this size) |
+| Alerts: price, drawn line, study value; lines, Alerts panel, toast when one fires | ✓ evaluated by `AlertEngine` on the server | ✓ | ✓ the same `chart_alerts` table and engine: one set of alerts across all front ends |
+| Sessions: shading of closed / extended hours, market status, bar-close countdown | ✓ calendar passed by the workspace | ✓ | ✓ from the published `sessions` table |
+| Compare (overlay on a % scale) | ✓ | ✓ | not built: needs a second subscription per compared symbol |
+| Spreads and ratios (`ES-NQ`, `ZN/ZB`, `2*ZN-ZB`) | ✓ computed in Deephaven from the legs' ticks | ✓ | ✗ an expression needs a server-side table; publish chosen spreads to offer them |
+
+How the server-side pieces work:
+
+- **History.** Each chart's table is `bars.natural_join(lookback, on=[]).where("Timestamp >= Since")`,
+  where `lookback` is a one-row input table (`data.Lookback`). The toolbar's range sets the initial
+  view, not a filter. Scrolling into the oldest bar calls the pane's Python `on_history`, which
+  doubles the lookback (or reaches a date for "go to date"). The table gains the older rows in place,
+  and Deephaven's plugin draws them without a new chart, so the user's view stays put.
+- **Alerts.** One input table (`alerts.alert_table`), written by browsers like annotations. The
+  `AlertEngine` listens to the active alerts joined to a live values table (`ChartSource.alert_values()`:
+  the last trade and each standard study's forming-bar value, per symbol). A crossing is a change of
+  side between two update cycles, so a move through the level and back within one cycle (1 s) is missed.
+  When an alert fires, the engine writes it back as triggered; the owner's browsers show a toast and
+  the Alerts panel logs it. Alerts fire with no browser open; the server log records each one.
+- **Sessions.** `sessions.SESSIONS` holds each instrument's exchange calendar: time zone, session
+  hours and regular hours. Browsers compute closed and extended ranges, market status and time to the
+  next change with `Intl`, so daylight saving is handled. Holidays are not modelled.
+- **Spreads.** `data.spread_ticks` takes the legs' ticks in time order, forward-fills each leg's
+  latest price, and prices every tick of any leg. Bars and studies are then built as for any symbol.
+  The first build of a spread takes about a second per 200k ticks; after that it is cached and shared.
 
 ## The hook
 
@@ -144,6 +169,11 @@ whenever the plugin reconfigures its series. An extension is
 | Watchlist: last, change, change % from the day's first trade, flash on tick, click to load the symbol in the active chart | ours (`react/src/Watchlist.tsx`; `dh_chart_ext.data.quotes`) | Verified: deephaven.ui workspace, group C |
 | Multi-chart layouts: 1, 2 side by side, 2 stacked, 3, 4; click a chart to make it active (the toolbar and watchlist act on it); sync symbol, interval, crosshair, time | ours (`dh_chart_ext.workspace`, toolbar layout menu) | Verified: deephaven.ui workspace; the whole layout is saved and restored |
 | Context menu (reset view, horizontal line at price, copy price, delete / share drawing, undo, remove my drawings); Alt+H horizontal line, Alt+T trend line, Alt+R reset view, Ctrl+Z undo; full-width horizontal line tool | ours (`ext/src/drawings.ts`) | Verified: deephaven.ui workspace |
+| History: view window, scroll back to load more, » jump to now, go to date (calendar button, Alt+G); synced charts load history too | ours (`ext/src/nav.ts`, `dh_chart_ext.data.Lookback`) | Verified: deephaven.ui workspace (4h → 8h on scroll, back to Tuesday by date, view unchanged), group C (5 days) |
+| Alerts: Alt+A or the context menu at a price, on a drawn line (it follows the line), on study values from the Alerts panel; dashed line with a bell; toast and log when fired | ours (`dh_chart_ext.alerts`, `ext/src/alerts.ts`, `react/src/AlertsPanel.tsx`) | Verified: deephaven.ui workspace and group C on one store; three alerts fired in the engine and were logged |
+| Real sessions: closed and extended hours shaded per exchange calendar, market status dot (with time to the next change), bar-close countdown on the price axis | ours (`dh_chart_ext.sessions`, `ext/src/sessions.ts`, `ext/src/countdown.ts`) | Verified: deephaven.ui workspace, group C |
+| Compare: overlay another symbol on a % scale, listed in the legend | ours (`charts.price_chart(compare=...)`, toolbar "Compare") | Verified: deephaven.ui workspace |
+| Spreads and ratios typed into the symbol search (`ES-NQ`, `ZN/ZB`, `2*ZN-ZB`), with studies | ours (`dh_chart_ext.data.spread_ticks`) | Verified: deephaven.ui workspace (ES-NQ) |
 | Workspace settings (symbol, resolution, range, type, studies, scale) | `dh_chart_ext.store.load_settings` / `save_settings`, per (`layout`, `user`) | Verified: restored after reload and server restart |
 | Session/time-range shading | ours (`ext/src/lwc-plugins/time-range-shading.ts`) | Works in both hosts |
 
@@ -221,7 +251,11 @@ The demo (`app.d`), per front-end group:
 - A, deephaven.ui: `http://localhost:10040/iframe/widget/?name=ws` (or `ws_grid`)
 - B, React with Deephaven UI objects: `http://localhost:4050/?widget=ws`, or
   `?widget=chart_ES&type=deephaven.plot.tradingview_lightweight.TvlChart`
-- C, React with table data only: `http://localhost:4050/?raw=bars_1m&sym=ES&studies=EMA_20,BB_20_2_Upper,BB_20_2_Lower`
+- C, React with table data only: `http://localhost:4050/?workspace&sym=NQ` (toolbar, legend, watchlist,
+  alerts, sessions), or one bare chart: `?raw=bars_1m&sym=ES&studies=EMA_20,BB_20_2_Upper,BB_20_2_Lower`
+
+The demo puts 5 days of synthetic history (`DEMO_HISTORY_DAYS`) before the live feed. Expect about 30 s
+after "Deephaven is up" before the first workspace opens; later opens take a few seconds.
 
 `--app-dir perf/app.d` runs the benchmark's app instead (`dash_tvl_1s`, `tvl1s_<SYM>`, 16 charts per
 dashboard); `perf/README.md` has the benchmark.

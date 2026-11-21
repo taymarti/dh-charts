@@ -147,7 +147,7 @@ export function tableAlertStore(dh: typeof Dh, table: Dh.Table, owner: string): 
 }
 
 /** "ES crosses 100.25", "ES crosses up the trend line", "NQ RSI 14 (1m) crosses down 70" */
-export function describeAlert(a: Pick<Alert, 'sym' | 'source' | 'kind' | 'op' | 'level'>, fmt = (v: number) => String(+v.toFixed(6))): string {
+export function describeAlert(a: Pick<Alert, 'sym' | 'source' | 'kind' | 'op' | 'level'>, fmt = (v: number) => String(+v.toFixed(4))): string {
   const verb = a.op === 'above' ? 'crosses up' : a.op === 'below' ? 'crosses down' : 'crosses';
   const what = a.source === 'Last' ? a.sym : `${a.sym} ${a.source.replace('@', ' (').replace(/_/g, ' ')})`;
   const target = a.kind === 'line' ? 'the trend line' : a.level != null ? fmt(a.level) : '?';

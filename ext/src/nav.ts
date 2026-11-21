@@ -115,6 +115,7 @@ export function bindNavigation(chart: IChartApi, series: ISeriesApi<SeriesType>,
 
   // ---- the view window
   let applied: number | null | undefined = undefined; // the window last applied
+  let appliedAt = 0;
   let settleTimer: ReturnType<typeof setTimeout> | undefined;
   const applyWindow = () => {
     const last = lastTime();
@@ -123,6 +124,7 @@ export function bindNavigation(chart: IChartApi, series: ISeriesApi<SeriesType>,
     if (opts.viewWindow === null) ts.fitContent();
     else showRange(Math.max(first, last - opts.viewWindow), last);
     applied = opts.viewWindow;
+    appliedAt = Date.now();
     // for tests and debugging, like the plugin's data-tvl-state
     host.dataset.acmeView = JSON.stringify({ window: opts.viewWindow, attempts: attempts + 1, at: Math.round(last) });
     return true;
@@ -130,7 +132,7 @@ export function bindNavigation(chart: IChartApi, series: ISeriesApi<SeriesType>,
   // A host may still fit the view to its data for a while after the first data (Deephaven's plugin does
   // until it has settled), so wait for data, then the settle time, then check the view took and re-apply
   // if it did not.
-  let attempts = 0;
+  let attempts = 0; // applications of the current window (reported in data-acme-view)
   const spanOk = () => {
     if (opts.viewWindow == null) return true;
     const r = ts.getVisibleRange();
@@ -138,7 +140,9 @@ export function bindNavigation(chart: IChartApi, series: ISeriesApi<SeriesType>,
     const last = lastTime();
     if (!r || first == null || last == null) return false;
     const want = Math.min(opts.viewWindow, last - first);
-    return Math.abs(Number(r.to) - Number(r.from) - want) <= Math.max(want * 0.15, 2);
+    const tol = Math.max(want * 0.15, 2);
+    // the right span, ending at the latest bar (a reused chart can still be showing an old range)
+    return Math.abs(Number(r.to) - Number(r.from) - want) <= tol && Math.abs(Number(r.to) - last) <= Math.max(tol, 60);
   };
   let settled = !opts.settleMs; // the host has had its settle time since the first data
   const scheduleWindow = (delay: number, fresh = true) => {
@@ -151,14 +155,26 @@ export function bindNavigation(chart: IChartApi, series: ISeriesApi<SeriesType>,
         return scheduleWindow(opts.settleMs ?? 0, false); // data just came: let the host settle first
       }
       applyWindow();
-      if (++attempts < 6) {
-        clearTimeout(settleTimer);
-        settleTimer = setTimeout(() => {
-          if (!spanOk()) scheduleWindow(0, false);
-        }, 1500);
-      }
+      attempts++;
+      // Keep the window for a while: the host may still reshape the data (a new lookback, a resample)
+      // and move the view. Stop as soon as the user takes over (pointer or wheel on the chart).
+      const until = Date.now() + 10000;
+      userTouched = false;
+      const enforce = () => {
+        if (userTouched || Date.now() > until) return;
+        if (!spanOk()) {
+          applyWindow();
+          attempts++;
+        }
+        settleTimer = setTimeout(enforce, 1000);
+      };
+      settleTimer = setTimeout(enforce, 1000);
     }, delay);
   };
+  let userTouched = false;
+  const touch = () => (userTouched = true);
+  host.addEventListener('pointerdown', touch, true);
+  host.addEventListener('wheel', touch, true);
   scheduleWindow(0);
 
   // ---- history on demand
@@ -176,7 +192,8 @@ export function bindNavigation(chart: IChartApi, series: ISeriesApi<SeriesType>,
   };
   const onRange = (r: LogicalRange | null) => {
     nowBtn.style.visibility = isAtNow() ? 'hidden' : 'visible';
-    if (!r || !host.matches(':hover')) return; // only the user's own scrolling asks for more
+    // only the user's own scrolling asks for more: not a chart being (re)built under the pointer
+    if (!r || !host.matches(':hover') || applied === undefined || Date.now() - appliedAt < 2000) return;
     if (r.from <= 2 && data().length > 0 && pendingFor !== firstTime()) askHistory();
   };
   const isAtNow = () => {
@@ -303,6 +320,8 @@ export function bindNavigation(chart: IChartApi, series: ISeriesApi<SeriesType>,
       clearTimeout(pendingTimer);
       ro.disconnect();
       host.removeEventListener('mousemove', onEnter);
+      host.removeEventListener('pointerdown', touch, true);
+      host.removeEventListener('wheel', touch, true);
       host.removeEventListener(NEED_HISTORY, onNeedHistory);
       window.removeEventListener('keydown', onKey);
       try {
