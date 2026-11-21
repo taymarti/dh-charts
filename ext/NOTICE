@@ -1,0 +1,18 @@
+dh-charts
+Copyright 2026 The dh-charts authors
+
+Licensed under the Apache License, Version 2.0 (see LICENSE).
+
+This product includes TradingView Lightweight Charts™ (Apache-2.0), whose attribution notice is:
+
+    TradingView Lightweight Charts™
+    Copyright (с) 2025 TradingView, Inc. https://www.tradingview.com/
+
+and TradingView's Lightweight Charts user price lines plugin (Apache-2.0):
+
+    TradingView Lightweight Charts™ — User price lines plugin
+    Copyright (c) 2026 TradingView, Inc. https://www.tradingview.com/
+
+The Lightweight Charts license requires applications that use it to show the attribution notice above
+and a link to https://www.tradingview.com/ on a page their users can see (the chart option
+`attributionLogo` satisfies the link requirement).

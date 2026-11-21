@@ -2,5 +2,8 @@
   "name": "dh-chart-perf-bench",
   "private": true,
   "type": "module",
-  "dependencies": { "playwright-core": "1.56.1" }
+  "dependencies": {
+    "playwright-core": "1.56.1"
+  },
+  "license": "Apache-2.0"
 }

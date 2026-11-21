@@ -7,6 +7,8 @@ name = "dh-chart-ext"
 version = "0.1.0"
 description = "Brings @acme/chart-ext (our Lightweight Charts plugins) to Deephaven TradingView charts in deephaven.ui"
 requires-python = ">=3.10"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
 dependencies = ["deephaven-plugin>=0.6.0", "deephaven-plugin-utilities>=0.0.2", "deephaven-plugin-tradingview-lightweight"]
 
 # How the Deephaven server finds it: the same entry point the TradingView plugin uses

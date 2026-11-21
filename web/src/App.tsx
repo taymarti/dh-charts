@@ -28,6 +28,7 @@ import { WidgetView, isWidgetPlugin, usePlugins } from '@deephaven/plugin';
 // does not export it from its index, so import its module directly
 import { FiberProvider } from '@deephaven/dashboard/dist/useFiber.js';
 import {
+  TRADINGVIEW_ATTRIBUTION,
   attachTvlExtensions,
   browserOwner,
   defaultExtensions,
@@ -111,6 +112,16 @@ function PluginWidget({ type, name, fetch }: { type: string; name: string; fetch
   return <Component fetch={fetch} metadata={{ type, name }} />;
 }
 
+/** Lightweight Charts' license: its attribution notice and a link to TradingView, once per page. */
+function Attribution() {
+  return (
+    <div className="attribution">
+      Charts: <a href={TRADINGVIEW_ATTRIBUTION.url} target="_blank" rel="noreferrer">{TRADINGVIEW_ATTRIBUTION.linkText}</a>
+      {TRADINGVIEW_ATTRIBUTION.notice.replace(TRADINGVIEW_ATTRIBUTION.linkText, '')}
+    </div>
+  );
+}
+
 function SingleWidget({ name, type }: { name: string; type: string }) {
   const connection = useConnection();
   const fetch = useMemo(() => () => connection.getObject({ type, name } as never), [connection, name, type]);
@@ -122,6 +133,8 @@ function SingleWidget({ name, type }: { name: string; type: string }) {
       <FiberProvider>
         <PluginWidget type={type} name={name} fetch={fetch} />
       </FiberProvider>
+      {/* a deephaven.ui workspace shows its own attribution */}
+      {type !== 'deephaven.ui.Element' && <Attribution />}
     </div>
   );
 }
@@ -146,6 +159,7 @@ function Grid() {
       {SYMS.slice(0, N).map(s => (
         <Chart key={s} name={`${PREFIX}${s}`} />
       ))}
+      <Attribution />
     </div>
   );
 }

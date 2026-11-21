@@ -52,7 +52,7 @@ export function RawChart({
   useEffect(() => {
     const chart = createChart(el.current!, {
       autoSize: true,
-      layout: { background: { type: ColorType.Solid, color: '#131722' }, textColor: '#d1d4dc', attributionLogo: false },
+      layout: { background: { type: ColorType.Solid, color: '#131722' }, textColor: '#d1d4dc', attributionLogo: true }, // Lightweight Charts' license: the logo links to TradingView
       grid: { vertLines: { color: '#1e222d' }, horzLines: { color: '#1e222d' } },
       crosshair: { mode: CrosshairMode.Normal },
       timeScale: { timeVisible: true, secondsVisible: true },

@@ -60,6 +60,22 @@ def _first(selection, default):
     return next(iter(selection), default)
 
 
+TRADINGVIEW_NOTICE = "TradingView Lightweight Charts™ Copyright (с) 2025 TradingView, Inc."
+TRADINGVIEW_URL = "https://www.tradingview.com/"
+
+
+def attribution():
+    """The attribution Lightweight Charts' license requires (its NOTICE text and a link to TradingView).
+    Deephaven's plugin hides the chart's own logo, so a page of charts shows this once."""
+    name = "TradingView Lightweight Charts™"
+    return ui.text(
+        "Charts: ",
+        ui.link(name, href=TRADINGVIEW_URL, target="_blank", variant="secondary", is_quiet=True),
+        TRADINGVIEW_NOTICE.replace(name, ""),  # " Copyright (с) 2025 TradingView, Inc."
+        UNSAFE_style={"fontSize": "11px", "opacity": 0.7},
+    )
+
+
 @ui.component
 def chart_workspace(
     source: ChartSource,
@@ -148,6 +164,8 @@ def chart_workspace(
         gap="size-150", wrap=True, align_items="center", align_content="start", flex_grow=0, flex_shrink=0,
     )
     parts = [toolbar, ui.view(chart, flex_grow=1, min_height="size-3000")]
+    # Lightweight Charts' license: its attribution notice and a link to TradingView, visible to users
+    parts.append(attribution())
     if annotations is not None:
         parts.append(annotations_element(annotations, user))  # draws nothing; feeds the chart extensions
     return ui.flex(*parts, direction="column", gap="size-100", flex_grow=1, height="100%")
