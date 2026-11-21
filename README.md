@@ -161,6 +161,10 @@ python -m build --wheel plugins/tradingview-lightweight
 
 ## Run it
 
+Environments whose package mirror lacks the Lightweight Charts packages: run
+[lwc-vendor](https://github.com/taymarti/lwc-vendor)'s `prime-cache` script once, then install as
+below; npm takes those packages from its cache.
+
 ```powershell
 # a server environment (Python 3.12, JDK 17+ in JAVA_HOME), with the fork's wheel (above)
 python -m venv .venv
