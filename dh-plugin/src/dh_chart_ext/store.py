@@ -78,6 +78,52 @@ def visible(t: Table, owner: str) -> Table:
     return t.where(["!Deleted", f"Shared || Owner == `{owner}`"])
 
 
+# ----------------------------------------------------------------------------- settings
+# Saved UI state (a workspace's toolbar, later chart settings) lives in the same table, as one row per
+# (layout, owner): ChartKey "settings:<layout>", Id = owner, Kind "settings", Spec = the state as JSON.
+
+SETTINGS_KIND = "settings"
+
+
+def _settings_key(layout: str) -> str:
+    return f"settings:{layout}"
+
+
+def load_settings(t: Table, layout: str, owner: str) -> Optional[dict]:
+    """The settings `owner` last saved for `layout`, or None. Reads a snapshot (call it once, e.g. on mount)."""
+    import json
+
+    from deephaven.pandas import to_pandas
+
+    df = to_pandas(
+        t.where([f"ChartKey = `{_settings_key(layout)}`", f"Id = `{owner}`", "!Deleted"]).view("Spec").snapshot()
+    )
+    if df.empty:
+        return None
+    try:
+        return json.loads(df["Spec"].iloc[0])
+    except (TypeError, ValueError):
+        return None
+
+
+def save_settings(t: InputTable, layout: str, owner: str, spec: dict) -> None:
+    """Save `spec` as `owner`'s settings for `layout` (an upsert)."""
+    import json
+    import time
+
+    from deephaven import new_table
+    from deephaven.column import bool_col, long_col, string_col
+
+    t.add(
+        new_table([
+            string_col("ChartKey", [_settings_key(layout)]), string_col("Id", [owner]),
+            string_col("Kind", [SETTINGS_KIND]), string_col("Owner", [owner]),
+            bool_col("Shared", [False]), bool_col("Deleted", [False]),
+            string_col("Spec", [json.dumps(spec, sort_keys=True)]), long_col("UpdatedMs", [int(time.time() * 1000)]),
+        ])
+    )
+
+
 def annotations_element(table: Table, owner: Optional[str] = None):
     """The deephaven.ui element that hands `table` to the page's chart extensions (rendered by the
     dh-chart-ext JS plugin as `acme.chart.Annotations`; it draws nothing). `owner` names the user;

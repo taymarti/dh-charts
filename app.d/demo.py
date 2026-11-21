@@ -43,12 +43,12 @@ chart_ES = price_chart(
 chart_annotations = annotation_table(path=_app_dir / "annotations.parquet")
 
 # L2: workspaces (user=None: a per-browser id)
-ws = chart_workspace(source, symbol="ES", studies=("Volume", "EMA_20"), annotations=chart_annotations)
-ws_alice = chart_workspace(source, symbol="ES", annotations=chart_annotations, user="alice")
-ws_bob = chart_workspace(source, symbol="ES", annotations=chart_annotations, user="bob")
+ws = chart_workspace(source, symbol="ES", studies=("Volume", "EMA_20"), annotations=chart_annotations, layout="ws")
+ws_alice = chart_workspace(source, symbol="ES", annotations=chart_annotations, user="alice", layout="ws")
+ws_bob = chart_workspace(source, symbol="ES", annotations=chart_annotations, user="bob", layout="ws")
 ws_grid = ui.dashboard(
     ui.column(
-        ui.row(ui.panel(chart_workspace(source, symbol="ES", annotations=chart_annotations), title="ES"), ui.panel(chart_workspace(source, symbol="NQ", annotations=chart_annotations), title="NQ")),
-        ui.row(ui.panel(chart_workspace(source, symbol="ZN", annotations=chart_annotations), title="ZN"), ui.panel(chart_workspace(source, symbol="CL", annotations=chart_annotations), title="CL")),
+        ui.row(ui.panel(chart_workspace(source, symbol="ES", annotations=chart_annotations, layout="grid-1"), title="ES"), ui.panel(chart_workspace(source, symbol="NQ", annotations=chart_annotations, layout="grid-2"), title="NQ")),
+        ui.row(ui.panel(chart_workspace(source, symbol="ZN", annotations=chart_annotations, layout="grid-3"), title="ZN"), ui.panel(chart_workspace(source, symbol="CL", annotations=chart_annotations, layout="grid-4"), title="CL")),
     )
 )

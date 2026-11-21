@@ -21,7 +21,7 @@ from deephaven.time import dh_now
 
 from .charts import price_chart, tick_chart
 from .data import STANDARD_RESOLUTIONS, STUDIES, bars, for_symbol, in_range, standard_set
-from .store import annotations_element
+from .store import annotations_element, load_settings, save_settings
 
 RANGES = {"5m": 300, "15m": 900, "30m": 1800, "1h": 3600, "4h": 14400, "All": None}
 CHART_TYPES = {"candle": "Candles", "bar": "Bars", "line": "Line", "area": "Area"}
@@ -71,20 +71,42 @@ def chart_workspace(
     scale: str = "normal",
     annotations: Optional[Table] = None,
     user: Optional[str] = None,
+    layout: str = "default",
 ):
     """Toolbar + chart. The arguments are the initial selections.
 
     annotations: the app's annotation table (store.annotation_table); with it, price lines and later
     drawings persist per symbol, per `user` (None: a per-browser id), and survive toolbar changes.
-    The chart key is the symbol (the price series' title), so a line drawn on ES shows on every ES chart."""
+    The chart key is the symbol (the price series' title), so a line drawn on ES shows on every ES chart.
+
+    With `annotations`, the toolbar's selections are saved too, per (`layout`, `user`), and restored
+    when the workspace opens; the arguments are then only the first-time defaults. Give each panel of a
+    dashboard its own `layout`. With user=None, settings are saved under "default", shared by every
+    anonymous viewer of that layout (Community has no user identity; price lines still use a per-browser id)."""
+    owner = user or "default"
+    saved = ui.use_memo(lambda: (load_settings(annotations, layout, owner) if annotations is not None else None) or {}, [])
     symbols = [str(s) for s in ui.use_column_data(source.symbols_table)] if source.symbols_table is not None else []
-    sym, set_sym = ui.use_state(symbol)
-    res, set_res = ui.use_state(resolution)
-    rng, set_rng = ui.use_state(range_)
-    ctype, set_ctype = ui.use_state(chart_type)
-    chosen, set_chosen = ui.use_state(tuple(studies))
-    scl, set_scl = ui.use_state(scale)
+    sym, set_sym = ui.use_state(saved.get("symbol", symbol))
+    res, set_res = ui.use_state(saved.get("resolution", resolution))
+    rng, set_rng = ui.use_state(saved.get("range", range_))
+    ctype, set_ctype = ui.use_state(saved.get("chart_type", chart_type))
+    chosen, set_chosen = ui.use_state(tuple(saved.get("studies", studies)))
+    scl, set_scl = ui.use_state(saved.get("scale", scale))
     sym = sym or (sorted(symbols)[0] if symbols else None)
+
+    # save the selections when they change (not on the first render: nothing changed yet)
+    mounted = ui.use_ref(False)
+
+    def save():
+        if not mounted.current:
+            mounted.current = True
+            return
+        if annotations is not None and sym is not None:
+            save_settings(annotations, layout, owner, {
+                "symbol": sym, "resolution": res, "range": rng, "chart_type": ctype, "studies": list(chosen), "scale": scl,
+            })
+
+    ui.use_effect(save, [sym, res, rng, ctype, chosen, scl])
 
     # The range start is fixed when the selection is made (a rolling window would re-filter every cycle).
     since = ui.use_memo(lambda: None if RANGES.get(rng) is None else dh_now().minusSeconds(RANGES[rng]), [rng, sym, res])
