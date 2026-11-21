@@ -266,3 +266,53 @@ def in_range(t: Table, since=None) -> Table:
     from deephaven.time import to_j_instant
 
     return t.where(f"Timestamp >= '{to_j_instant(since)}'")  # an Instant literal
+
+
+# ----------------------------------------------------------------------------- study types (for UIs)
+
+@dataclass(frozen=True)
+class StudyType:
+    """A kind of study a UI can add, with editable parameters. `make(params)` builds the Study."""
+    label: str
+    group: str
+    params: dict  # name -> default
+    make: object  # Callable[[dict], Study]
+
+    def build(self, params: Optional[dict] = None) -> Study:
+        p = {**self.params, **(params or {})}
+        return self.make(p)  # type: ignore[operator]
+
+
+STUDY_TYPES = {
+    "EMA": StudyType("Moving Average Exponential", "Moving averages", {"length": 20}, lambda p: EMA(int(p["length"]))),
+    "SMA": StudyType("Moving Average", "Moving averages", {"length": 20}, lambda p: SMA(int(p["length"]))),
+    "BB": StudyType("Bollinger Bands", "Bands and channels", {"length": 20, "mult": 2.0},
+                    lambda p: Bollinger(int(p["length"]), float(p["mult"]))),
+    "VWAP": StudyType("VWAP", "Volume", {}, lambda p: VWAP()),
+    "RSI": StudyType("Relative Strength Index", "Oscillators", {"length": 14}, lambda p: RSI(int(p["length"]))),
+    "Volume": StudyType("Volume", "Volume", {}, lambda p: Volume()),
+}
+"""What UIs offer in their indicators dialog. An instance is {id, type, params, color, visible}."""
+
+
+def study_label(type_: str, params: Optional[dict] = None) -> str:
+    """Short legend label: 'EMA 20', 'BB 20 2', 'RSI 14', 'VWAP'."""
+    st = STUDY_TYPES[type_]
+    p = {**st.params, **(params or {})}
+    vals = " ".join(f"{v:g}" if isinstance(v, float) else str(v) for v in p.values())
+    return f"{type_} {vals}".strip()
+
+
+# ----------------------------------------------------------------------------- quotes (watchlists)
+
+def quotes(ticks: Table, *, by: str = "Sym", time_col: str = "Timestamp", price_col: str = "Price") -> Table:
+    """One row per symbol: Last, the day's first price (Open), Chg and ChgPct from it, Updated.
+    Live and small: what a watchlist subscribes to."""
+    return (
+        ticks.update_view(f"Day = lowerBin({time_col}, DAY)")
+        .agg_by([agg.last(f"Last={price_col}"), agg.first(f"Open={price_col}"), agg.last(f"Updated={time_col}")], by=[by, "Day"])
+        .last_by(by)
+        .update_view(["Chg = Last - Open", "ChgPct = Open == 0 ? NULL_DOUBLE : 100.0 * Chg / Open"])
+        .view([by, "Last", "Chg", "ChgPct", "Updated"])
+        .sort(by)
+    )

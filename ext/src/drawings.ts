@@ -1,5 +1,5 @@
 /**
- * Drawing tools: horizontal ray and trend line (more kinds plug in the same way), as a plain
+ * Drawing tools: horizontal line, horizontal ray and trend line (more kinds plug in the same way), as a plain
  * Lightweight Charts plugin with no Deephaven dependency, saved through an AnnotationStore
  * (kind "drawing", spec { type, points: [{ time, price }] }).
  *
@@ -11,6 +11,11 @@
  *   click a drawing      select it (handles show); drag the line or a handle to move it
  *   Delete / Backspace   delete the selected drawing        Ctrl+click: share / unshare it
  *   Esc                  cancel the tool or the selection
+ *   right-click          context menu: reset view, horizontal line / copy price at the pointer,
+ *                        delete or share the drawing under it, undo, remove all my drawings
+ *   Alt+H  horizontal line at the pointer   Alt+T  trend line tool   Alt+R  reset view   Ctrl+Z  undo
+ * Shortcuts go to the chart the pointer was last over. Undo covers this chart's own drawing changes
+ * (add, move, delete, share) since it was bound.
  * Points snap to the bar's open/high/low/close within a few pixels (a "weak magnet").
  *
  * Coordinates: points are stored as (UTC seconds, price) and turned into pixels on every frame.
@@ -34,7 +39,7 @@ import { newAnnotationId, onPageAnnotationStore, type Annotation, type Annotatio
 import { titleChartKey } from './persistent-price-lines';
 import type { TvlChartContext, TvlExtension } from './hook';
 
-export type DrawingType = 'hray' | 'trend';
+export type DrawingType = 'hline' | 'hray' | 'trend';
 export interface DrawingPoint {
   time: number; // UTC seconds
   price: number;
@@ -48,7 +53,7 @@ interface Drawing {
 }
 
 const KIND = 'drawing';
-const POINTS: Record<DrawingType, number> = { hray: 1, trend: 2 };
+const POINTS: Record<DrawingType, number> = { hline: 1, hray: 1, trend: 2 };
 const OWN = '#f7a600';
 const SHARED_OWN = '#ffd54f';
 const OTHERS = '#2962ff';
@@ -120,7 +125,13 @@ class DrawingsPrimitive implements ISeriesPrimitive<Time> {
     if (pts.some(p => p.x == null || p.y == null)) return null;
     const P = pts as { x: number; y: number }[];
     const segs: [number, number, number, number][] =
-      d.type === 'hray' ? [[P[0].x, P[0].y, width, P[0].y]] : P.length > 1 ? [[P[0].x, P[0].y, P[1].x, P[1].y]] : [];
+      d.type === 'hline'
+        ? [[0, P[0].y, width, P[0].y]]
+        : d.type === 'hray'
+          ? [[P[0].x, P[0].y, width, P[0].y]]
+          : P.length > 1
+            ? [[P[0].x, P[0].y, P[1].x, P[1].y]]
+            : [];
     return { points: P, segs };
   }
 
@@ -179,6 +190,91 @@ function toDrawing(a: Annotation): Drawing | null {
   return { id: a.id, type: s.type, points: s.points, owner: a.owner, shared: a.shared };
 }
 
+/** The chart that keyboard shortcuts go to: the one the pointer was last over. */
+let shortcutTarget: object | null = null;
+
+const MENU_CSS = {
+  position: 'fixed', zIndex: '1000', minWidth: '230px', padding: '4px 0', background: '#1e222d', color: '#d1d4dc',
+  border: '1px solid #2a2e39', borderRadius: '6px', boxShadow: '0 6px 24px rgba(0,0,0,.5)',
+  font: '13px -apple-system, BlinkMacSystemFont, "Trebuchet MS", Roboto, Ubuntu, sans-serif', userSelect: 'none',
+};
+
+interface MenuItem {
+  label: string;
+  hint?: string;
+  disabled?: boolean;
+  run?: () => void;
+}
+
+/** A small TradingView-style context menu at (x, y); '-' is a separator. Closes on any outside action. */
+function showMenu(x: number, y: number, items: Array<MenuItem | '-'>): () => void {
+  const menu = document.createElement('div');
+  menu.className = 'acme-ctx-menu';
+  Object.assign(menu.style, MENU_CSS);
+  for (const it of items) {
+    if (it === '-') {
+      const sep = document.createElement('div');
+      Object.assign(sep.style, { height: '1px', margin: '4px 0', background: '#2a2e39' });
+      menu.appendChild(sep);
+      continue;
+    }
+    const row = document.createElement('div');
+    Object.assign(row.style, {
+      display: 'flex', gap: '24px', padding: '7px 14px', cursor: it.disabled ? 'default' : 'pointer',
+      color: it.disabled ? '#5d606b' : '#d1d4dc', whiteSpace: 'nowrap',
+    });
+    const label = document.createElement('span');
+    label.textContent = it.label;
+    row.appendChild(label);
+    if (it.hint) {
+      const hint = document.createElement('span');
+      hint.textContent = it.hint;
+      Object.assign(hint.style, { marginLeft: 'auto', color: '#787b86' });
+      row.appendChild(hint);
+    }
+    if (!it.disabled) {
+      row.addEventListener('mouseenter', () => (row.style.background = '#2a2e39'));
+      row.addEventListener('mouseleave', () => (row.style.background = ''));
+      row.addEventListener('mousedown', ev => ev.stopPropagation());
+      row.addEventListener('click', () => {
+        close();
+        it.run?.();
+      });
+    }
+    menu.appendChild(row);
+  }
+  document.body.appendChild(menu);
+  // keep it on screen
+  const r = menu.getBoundingClientRect();
+  menu.style.left = `${Math.max(4, Math.min(x, innerWidth - r.width - 4))}px`;
+  menu.style.top = `${Math.max(4, Math.min(y, innerHeight - r.height - 4))}px`;
+
+  const onDown = (ev: MouseEvent) => {
+    if (!menu.contains(ev.target as Node)) close();
+  };
+  const onKey = (ev: KeyboardEvent) => {
+    if (ev.key === 'Escape') close();
+  };
+  let open = true;
+  function close() {
+    if (!open) return;
+    open = false;
+    menu.remove();
+    window.removeEventListener('mousedown', onDown, true);
+    window.removeEventListener('keydown', onKey, true);
+    window.removeEventListener('wheel', close, true);
+    window.removeEventListener('blur', close);
+  }
+  setTimeout(() => {
+    if (!open) return;
+    window.addEventListener('mousedown', onDown, true);
+    window.addEventListener('keydown', onKey, true);
+    window.addEventListener('wheel', close, true);
+    window.addEventListener('blur', close);
+  });
+  return close;
+}
+
 /**
  * Drawing tools on `series` (the price series) of `chart`, saved in `store` under `chartKey`.
  * `host` is where the tool palette goes (an element that contains the chart). Returns a cleanup function.
@@ -199,6 +295,18 @@ export function bindDrawings(
   const ax = axis(chart);
   let tool: DrawingType | null = null;
   let drag: { id: string; handle: number | null; start: { x: number; y: number }; orig: DrawingPoint[] } | null = null;
+  const me = {};
+  let pointer: { x: number; y: number } | null = null; // last position over the pane
+  let closeMenu = () => {};
+
+  // undo: each step is what to restore, per drawing id (before null: the drawing did not exist)
+  type Step = Array<{ id: string; before: Drawing | null }>;
+  const history: Step[] = [];
+  const record = (step: Step) => {
+    history.push(step);
+    if (history.length > 100) history.shift();
+  };
+  const snapshot = (d: Drawing): Drawing => ({ ...d, points: d.points.map(p => ({ ...p })) });
 
   const sync = () => {
     prim.drawings = store.list(chartKey).filter(a => a.kind === KIND).map(toDrawing).filter((d): d is Drawing => d != null);
@@ -210,6 +318,22 @@ export function bindDrawings(
 
   const save = (d: Drawing) =>
     void store.put({ chartKey, id: d.id, kind: KIND, spec: { type: d.type, points: d.points }, shared: d.shared });
+
+  const undo = () => {
+    const step = history.pop();
+    if (!step) return;
+    for (const { id, before } of step) {
+      if (before) {
+        prim.drawings = [...prim.drawings.filter(z => z.id !== id), before];
+        save(before); // an upsert: it also brings back a deleted drawing
+      } else {
+        prim.drawings = prim.drawings.filter(z => z.id !== id);
+        void store.remove(chartKey, id);
+      }
+    }
+    prim.selected = null;
+    prim.update();
+  };
 
   // pointer position in the pane, the point it means (with the magnet), and what is under it
   const local = (ev: MouseEvent) => {
@@ -282,6 +406,7 @@ export function bindDrawings(
         setTool(null);
         prim.drawings = [...prim.drawings, d];
         save(d);
+        record([{ id: d.id, before: null }]);
       }
       prim.update();
       return;
@@ -297,7 +422,7 @@ export function bindDrawings(
     stop(ev);
     const mine = h.d.owner === store.owner;
     if (mine && (ev.ctrlKey || ev.metaKey)) {
-      save({ ...h.d, shared: !h.d.shared });
+      toggleShare(h.d);
       return;
     }
     prim.selected = h.d.id;
@@ -310,6 +435,8 @@ export function bindDrawings(
 
   const onMove = (ev: MouseEvent) => {
     const { x, y, width } = local(ev);
+    pointer = { x, y };
+    shortcutTarget = me;
     // a trend line being placed follows the pointer to its second point
     if (prim.preview && tool) {
       const p = pointAt(x, y);
@@ -343,12 +470,106 @@ export function bindDrawings(
   const onUp = () => {
     if (!drag) return;
     const d = prim.drawings.find(z => z.id === drag!.id);
+    const orig = drag.orig;
     drag = null;
     freeze(false);
-    if (d) save(d);
+    if (!d) return;
+    const moved = d.points.some((p, i) => p.time !== orig[i].time || p.price !== orig[i].price);
+    if (!moved) return;
+    record([{ id: d.id, before: { ...snapshot(d), points: orig } }]);
+    save(d);
+  };
+
+  function toggleShare(d: Drawing) {
+    record([{ id: d.id, before: snapshot(d) }]);
+    save({ ...d, shared: !d.shared });
+  }
+  const removeDrawings = (ds: Drawing[]) => {
+    if (!ds.length) return;
+    record(ds.map(d => ({ id: d.id, before: snapshot(d) })));
+    const gone = new Set(ds.map(d => d.id));
+    prim.drawings = prim.drawings.filter(z => !gone.has(z.id));
+    if (prim.selected && gone.has(prim.selected)) prim.selected = null;
+    prim.update();
+    for (const d of ds) void store.remove(chartKey, d.id);
+  };
+  const addHorizontal = (y: number) => {
+    const price = series.coordinateToPrice(y);
+    const time = ax.time(pointer?.x ?? 0);
+    if (price == null || time == null) return;
+    const d: Drawing = {
+      id: newAnnotationId(), type: 'hline', points: [{ time: Math.round(time), price: price as number }], owner: store.owner, shared: false,
+    };
+    prim.drawings = [...prim.drawings, d];
+    prim.selected = d.id;
+    prim.update();
+    save(d);
+    record([{ id: d.id, before: null }]);
+  };
+  const resetView = () => {
+    chart.timeScale().fitContent(); // all the data (the chart's range), as TradingView's reset
+    chart.panes().forEach((_, i) => chart.priceScale('right', i).applyOptions({ autoScale: true }));
+  };
+  const fmt = (price: number) => series.priceFormatter().format(price);
+
+  const onContextMenu = (ev: MouseEvent) => {
+    ev.preventDefault();
+    ev.stopPropagation();
+    closeMenu();
+    const { x, y, width } = local(ev);
+    pointer = { x, y };
+    const price = series.coordinateToPrice(y) as number | null;
+    const h = hit(x, y, width);
+    const mineAll = prim.drawings.filter(d => d.owner === store.owner);
+    const items: Array<MenuItem | '-'> = [{ label: 'Reset chart view', hint: 'Alt+R', run: resetView }, '-'];
+    if (price != null) {
+      items.push(
+        { label: `Add horizontal line at ${fmt(price)}`, hint: 'Alt+H', run: () => addHorizontal(y) },
+        { label: `Copy price ${fmt(price)}`, run: () => void navigator.clipboard?.writeText(fmt(price)) },
+      );
+    }
+    if (h) {
+      const mine = h.d.owner === store.owner;
+      items.push('-');
+      if (mine) {
+        items.push(
+          { label: 'Delete drawing', hint: 'Del', run: () => removeDrawings([h.d]) },
+          { label: h.d.shared ? 'Stop sharing drawing' : 'Share drawing', hint: 'Ctrl+click', run: () => toggleShare(h.d) },
+        );
+      } else {
+        items.push({ label: `${h.d.owner}'s drawing`, disabled: true });
+      }
+    }
+    items.push(
+      '-',
+      { label: 'Undo', hint: 'Ctrl+Z', disabled: history.length === 0, run: undo },
+      {
+        label: `Remove my drawings${mineAll.length ? ` (${mineAll.length})` : ''}`,
+        disabled: mineAll.length === 0,
+        run: () => removeDrawings(mineAll),
+      },
+    );
+    closeMenu = showMenu(ev.clientX, ev.clientY, items);
   };
 
   const onKey = (ev: KeyboardEvent) => {
+    const target = ev.target as HTMLElement | null;
+    if (target && (/^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName) || target.isContentEditable)) return;
+    if (shortcutTarget === me) {
+      const k = ev.code;
+      if (ev.altKey && !ev.ctrlKey && !ev.metaKey && (k === 'KeyH' || k === 'KeyT' || k === 'KeyR')) {
+        ev.preventDefault();
+        if (k === 'KeyH' && pointer) addHorizontal(pointer.y);
+        if (k === 'KeyT') setTool(tool === 'trend' ? null : 'trend');
+        if (k === 'KeyR') resetView();
+        return;
+      }
+      if ((ev.ctrlKey || ev.metaKey) && !ev.altKey && !ev.shiftKey && k === 'KeyZ') {
+        ev.preventDefault();
+        undo();
+        return;
+      }
+    }
     if (ev.key === 'Escape') {
       prim.preview = null;
       prim.selected = null;
@@ -357,15 +578,8 @@ export function bindDrawings(
       return;
     }
     if ((ev.key === 'Delete' || ev.key === 'Backspace') && prim.selected) {
-      const target = ev.target as HTMLElement | null;
-      if (target && /^(INPUT|TEXTAREA)$/.test(target.tagName)) return;
       const d = prim.drawings.find(z => z.id === prim.selected);
-      if (d && d.owner === store.owner) {
-        prim.drawings = prim.drawings.filter(z => z !== d);
-        prim.selected = null;
-        prim.update();
-        void store.remove(chartKey, d.id);
-      }
+      if (d && d.owner === store.owner) removeDrawings([d]);
     }
   };
 
@@ -377,7 +591,9 @@ export function bindDrawings(
     background: 'rgba(19, 23, 34, 0.85)', border: '1px solid #2a2e39', borderRadius: '4px', padding: '2px',
   });
   const buttons = new Map<DrawingType, HTMLButtonElement>();
-  const icons: Record<DrawingType, [string, string]> = { hray: ['—', 'Horizontal ray'], trend: ['╱', 'Trend line'] };
+  const icons: Record<DrawingType, [string, string]> = {
+    hline: ['═', 'Horizontal line (Alt+H at the pointer)'], hray: ['—', 'Horizontal ray'], trend: ['╱', 'Trend line (Alt+T)'],
+  };
   for (const t of Object.keys(POINTS) as DrawingType[]) {
     const b = document.createElement('button');
     b.textContent = icons[t][0];
@@ -402,6 +618,7 @@ export function bindDrawings(
 
   pane.addEventListener('mousedown', onDown, true);
   pane.addEventListener('mousemove', onMove, true);
+  pane.addEventListener('contextmenu', onContextMenu, true);
   window.addEventListener('mouseup', onUp, true);
   window.addEventListener('keydown', onKey);
 
@@ -409,6 +626,9 @@ export function bindDrawings(
     unsubscribe();
     pane.removeEventListener('mousedown', onDown, true);
     pane.removeEventListener('mousemove', onMove, true);
+    pane.removeEventListener('contextmenu', onContextMenu, true);
+    closeMenu();
+    if (shortcutTarget === me) shortcutTarget = null;
     window.removeEventListener('mouseup', onUp, true);
     window.removeEventListener('keydown', onKey);
     palette.remove();

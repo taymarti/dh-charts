@@ -5,7 +5,9 @@
  *   dh-plugin/  a server plugin that brings the same features to deephaven.ui
  */
 export { attachTvlExtensions, stats, type TvlChartContext, type TvlExtension, type TvlRenderer } from './hook';
-export { crosshairSync, sessionShading, userPriceLines } from './extensions';
+export { sessionShading, userPriceLines } from './extensions';
+export { bindSync, crosshairSync } from './sync';
+export { subscribeRows, type Row } from './table-rows';
 export { TimeRangeShading, alternatingBlocks, type RangesFor, type ShadedRange } from './lwc-plugins/time-range-shading';
 export { defaultExtensions, type ExtensionName } from './defaults';
 export {

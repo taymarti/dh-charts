@@ -37,6 +37,7 @@ def price_chart(
     auto_bin: bool = False,
     since=None,
     on_press=None,
+    colors: Optional[Sequence[Optional[str]]] = None,
 ) -> tvl.TvlChart:
     """A price chart from a bars table (L0 `bars`, one symbol), with studies on overlays and panes.
 
@@ -44,13 +45,16 @@ def price_chart(
     coarser when zoomed out (fewer bars on screen, but the resolution then depends on zoom).
 
     since (an Instant) limits the chart to a range; studies are computed on the full table first, so
-    they are warmed up at the range start. `scale` applies to the price pane only."""
+    they are warmed up at the range start. `scale` applies to the price pane only.
+
+    colors: one color per study (None: the next house color); a study's lines share its color."""
     t = in_range(with_studies(bars_t, studies, by=None), since)
     series = [_price_series(t, chart_type, title, auto_bin, scale)]
 
     panes: list[str] = []
     color_i = 0
-    for s in studies:
+    for si, s in enumerate(studies):
+        color = (colors[si] if colors and si < len(colors) else None) or STUDY_COLORS[color_i % len(STUDY_COLORS)]
         if s.pane == "overlay":
             pane = None
         else:
@@ -58,7 +62,8 @@ def price_chart(
                 panes.append(s.pane)
             pane = 1 + panes.index(s.pane)
         if isinstance(s, Volume):
-            series.append(tvl.histogram(t, timestamp="Timestamp", value="Volume", color="rgba(120, 144, 156, 0.6)", pane=pane, title="Volume",
+            vol_color = colors[si] if colors and si < len(colors) and colors[si] else "rgba(120, 144, 156, 0.6)"
+            series.append(tvl.histogram(t, timestamp="Timestamp", value="Volume", color=vol_color, pane=pane, title="Volume",
                                         price_scale=_LINEAR))
             continue
         for col in s.columns():
@@ -66,7 +71,7 @@ def price_chart(
             series.append(
                 tvl.line(
                     t, timestamp="Timestamp", value=col, title=col, pane=pane,
-                    color=STUDY_COLORS[color_i % len(STUDY_COLORS)], line_width=1,
+                    color=color, line_width=1,
                     line_style="dashed" if mid else None, last_value_visible=False, price_lines=_guides(s),
                     # study panes keep a linear scale; otherwise the plugin carries the price pane's mode (log, %) into them
                     price_scale=_LINEAR if pane is not None else None,

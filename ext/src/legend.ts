@@ -4,7 +4,8 @@
  * Line or area series show their value. A plain DOM overlay over any LWC chart; no Deephaven dependency.
  *
  *   bindLegend(chart, series, host, title)   any LWC chart
- *   ohlcLegend()                             extension for Deephaven charts (title = chart key)
+ *   ohlcLegend()                             extension for Deephaven charts (title = chart key); skips
+ *                                            charts inside [data-acme-legend], whose host draws its own
  */
 import type { IChartApi, ISeriesApi, MouseEventParams, SeriesType, Time } from 'lightweight-charts';
 import { titleChartKey } from './persistent-price-lines';
@@ -89,5 +90,9 @@ export function bindLegend(chart: IChartApi, series: ISeriesApi<SeriesType>, hos
 
 /** Extension: the OHLC legend on every Deephaven chart, titled with the chart key (the symbol). */
 export function ohlcLegend(keyOf: (ctx: TvlChartContext) => string | undefined = titleChartKey): TvlExtension {
-  return ctx => bindLegend(ctx.chart, ctx.series[0], ctx.element, keyOf(ctx) ?? '');
+  return ctx => {
+    // a host that draws its own legend (acme.chart.Frame: legend rows with study controls) marks the chart
+    if (ctx.element.closest('[data-acme-legend]')) return;
+    return bindLegend(ctx.chart, ctx.series[0], ctx.element, keyOf(ctx) ?? '');
+  };
 }

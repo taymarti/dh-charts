@@ -3,7 +3,7 @@
  * reports changes through `onChange(patch)`; the host owns the state (React state, or Python state in a
  * deephaven.ui workspace via the `acme.chart.Toolbar` element).
  *
- *   symbol ▾ (search) | interval ▾ | chart type ▾ | ƒx Indicators (dialog)  ...  range ▾ | % | log
+ *   symbol ▾ (search) | interval ▾ | chart type ▾ | ƒx Indicators (dialog)  ...  range ▾ | % | log | layout ▾ | watchlist
  *
  * Any part whose options are missing or empty is left out, so a host offers only what it supports.
  */
@@ -16,8 +16,24 @@ export interface ToolbarValue {
   resolution?: string;
   range?: string;
   chartType?: string;
+  /** selected study keys; with options.addStudies, the types of the chart's study instances (repeats allowed) */
   studies?: string[];
   scale?: string; // "normal" | "log" | "percent"
+  /** multi-chart layout key: "1", "2h" (side by side), "2v" (stacked), "3h", "4" */
+  layout?: string;
+  sync?: SyncValue;
+  /** the watchlist panel is open */
+  watchlist?: boolean;
+  /** in onChange only, with options.addStudies: the indicators dialog asks to add an instance of this type */
+  addStudy?: string;
+}
+
+/** What follows the active chart across a multi-chart layout. */
+export interface SyncValue {
+  symbol?: boolean;
+  interval?: boolean;
+  crosshair?: boolean;
+  time?: boolean;
 }
 
 export interface ToolbarItem {
@@ -36,6 +52,14 @@ export interface ToolbarOptions {
   studies?: ToolbarItem[];
   /** offer the % and log scale toggles */
   scales?: boolean;
+  /** the indicators dialog adds an instance per click (onChange({ addStudy })) instead of toggling keys */
+  addStudies?: boolean;
+  /** multi-chart layouts to offer (keys as in ToolbarValue.layout) */
+  layouts?: ToolbarItem[];
+  /** offer the sync toggles in the layout menu */
+  sync?: boolean;
+  /** offer the watchlist toggle */
+  watchlist?: boolean;
 }
 
 export interface ChartToolbarProps {
@@ -46,8 +70,14 @@ export interface ChartToolbarProps {
 }
 
 const TYPE_ICON: Record<string, ReactNode> = { candle: icons.candle, bar: icons.bar, line: icons.line, area: icons.area };
+const LAYOUT_ICON: Record<string, ReactNode> = {
+  '1': icons.layout1, '2h': icons.layout2h, '2v': icons.layout2v, '3h': icons.layout3h, '4': icons.layout4,
+};
+const SYNC_ITEMS: Array<[keyof SyncValue, string]> = [
+  ['symbol', 'Symbol'], ['interval', 'Interval'], ['crosshair', 'Crosshair'], ['time', 'Time'],
+];
 
-type Open = 'symbol' | 'interval' | 'type' | 'range' | null;
+type Open = 'symbol' | 'interval' | 'type' | 'range' | 'layout' | null;
 
 export function ChartToolbar({ value, options, onChange, className }: ChartToolbarProps) {
   injectToolbarStyles();
@@ -153,6 +183,56 @@ export function ChartToolbar({ value, options, onChange, className }: ChartToolb
     );
     parts.push(sep('s3'), scaleBtn('percent', '%', 'Percent scale'), scaleBtn('log', 'log', 'Logarithmic scale'));
   }
+  if (options.layouts?.length) {
+    const sync = value.sync ?? {};
+    parts.push(
+      sep('s4'),
+      <span key="lay" style={{ position: 'relative' }}>
+        <button className={`acme-tb-btn${open === 'layout' ? ' on' : ''}`} onClick={() => toggle('layout')} title="Layout">
+          {LAYOUT_ICON[value.layout ?? '1'] ?? icons.layout1}
+          {icons.caret}
+        </button>
+        {open === 'layout' && (
+          <div className="acme-tb-pop" style={{ right: 0, minWidth: 200 }}>
+            <div className="acme-tb-group">Layout</div>
+            {options.layouts.map(it => (
+              <div
+                key={it.key}
+                className={`acme-tb-item${it.key === (value.layout ?? '1') ? ' selected' : ''}`}
+                onClick={() => pick({ layout: it.key })}
+              >
+                {LAYOUT_ICON[it.key]}
+                {it.label}
+              </div>
+            ))}
+            {options.sync && (
+              <>
+                <div className="acme-tb-group">Sync in layout</div>
+                {SYNC_ITEMS.map(([k, label]) => (
+                  <div key={k} className="acme-tb-item toggle" onClick={() => onChange({ sync: { ...sync, [k]: !sync[k] } })}>
+                    <span className={`acme-tb-box${sync[k] ? ' on' : ''}`}>{sync[k] ? '✓' : ''}</span>
+                    {label}
+                  </div>
+                ))}
+              </>
+            )}
+          </div>
+        )}
+      </span>,
+    );
+  }
+  if (options.watchlist) {
+    parts.push(
+      <button
+        key="wl"
+        className={`acme-tb-btn${value.watchlist ? ' active' : ''}`}
+        title="Watchlist"
+        onClick={() => onChange({ watchlist: !value.watchlist })}
+      >
+        {icons.watchlist}
+      </button>,
+    );
+  }
 
   return (
     <div ref={root} className={`acme-tb${className ? ` ${className}` : ''}`}>
@@ -161,7 +241,9 @@ export function ChartToolbar({ value, options, onChange, className }: ChartToolb
         <IndicatorsDialog
           items={options.studies}
           selected={value.studies ?? []}
+          counts={!!options.addStudies}
           onToggle={key => {
+            if (options.addStudies) return onChange({ addStudy: key });
             const cur = value.studies ?? [];
             onChange({ studies: cur.includes(key) ? cur.filter(k => k !== key) : [...cur, key] });
           }}
@@ -243,11 +325,14 @@ function SymbolSearch({ items, value, onPick }: { items: ToolbarItem[]; value?: 
 function IndicatorsDialog({
   items,
   selected,
+  counts,
   onToggle,
   onClose,
 }: {
   items: ToolbarItem[];
   selected: string[];
+  /** show how many of each are on the chart (instances) instead of a check mark */
+  counts?: boolean;
   onToggle: (key: string) => void;
   onClose: () => void;
 }) {
@@ -276,7 +361,9 @@ function IndicatorsDialog({
               {its.map(it => (
                 <div key={it.key} className="acme-tb-item" onClick={() => onToggle(it.key)}>
                   {it.label}
-                  {selected.includes(it.key) && <span className="acme-tb-check">✓</span>}
+                  {counts
+                    ? selected.includes(it.key) && <span className="acme-tb-count">{selected.filter(k => k === it.key).length}</span>
+                    : selected.includes(it.key) && <span className="acme-tb-check">✓</span>}
                 </div>
               ))}
             </div>

@@ -9,6 +9,6 @@ export default defineConfig({
     emptyOutDir: true,
     minify: false,
     sourcemap: true,
-    rollupOptions: { external: ['react', 'react/jsx-runtime', 'react-dom'] },
+    rollupOptions: { external: ['react', 'react/jsx-runtime', 'react-dom', 'lightweight-charts'] },
   },
 });

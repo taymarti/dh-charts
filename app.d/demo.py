@@ -5,7 +5,9 @@ Published fields, one per layer and front end (README.md):
   bars_1s, bars_5s, bars_1m, bars_5m   L0 standard set: every symbol, every standard study
                                        (React apps with their own charts filter these by Sym/Timestamp)
   chart_ES                             L1: one composed chart (React: WidgetView)
-  ws                                   L2: one workspace (a deephaven.ui element)
+  ws                                   L2: one workspace (a deephaven.ui element): toolbar, legend rows, watchlist,
+                                       multi-chart layouts (the toolbar's layout menu)
+  quotes                               L0: last price and change per symbol (watchlists)
   ws_grid                              L2: a 2x2 dashboard of workspaces
   ws_alice, ws_bob                     L2: the workspace as two named users (sharing demo)
   chart_annotations                    P: saved price lines (and later drawings); app.d/annotations.parquet
@@ -43,7 +45,7 @@ chart_ES = price_chart(
 chart_annotations = annotation_table(path=_app_dir / "annotations.parquet")
 
 # L2: workspaces (user=None: a per-browser id)
-ws = chart_workspace(source, symbol="ES", studies=("Volume", "EMA_20"), annotations=chart_annotations, layout="ws")
+ws = chart_workspace(source, symbol="ES", studies=("Volume", "EMA_20"), annotations=chart_annotations, layout="ws", watchlist=True)
 ws_alice = chart_workspace(source, symbol="ES", annotations=chart_annotations, user="alice", layout="ws")
 ws_bob = chart_workspace(source, symbol="ES", annotations=chart_annotations, user="bob", layout="ws")
 ws_grid = ui.dashboard(

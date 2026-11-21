@@ -26,10 +26,10 @@ use.
 |---|---|---|---|---|---|
 | **L0 Data** | Tables: bars at any resolution, studies as columns (EMA, VWAP, Bollinger bands, RSI...), symbol and range filters. Pure table functions, plus a published standard set | `dh_chart_ext.data` (Python) | ✓ | ✓ | ✓ via the published tables; JS API filters choose symbol and range |
 | **L1 Chart objects** | `TvlChart`s composed from L0 tables in house style: chart type, studies placed on overlays or panes, scales | `dh_chart_ext.charts` | ✓ | ✓ `WidgetView` | ✗ (renders with Deephaven's plugin) |
-| **L2 Workspace** | A deephaven.ui component: toolbar (symbol, resolution, range, type, studies, scale) plus an L1 chart | `dh_chart_ext.workspace` | ✓ | ? `WidgetView` of a deephaven.ui element, to be verified | ✗ |
+| **L2 Workspace** | A deephaven.ui component: toolbar, one to four L1 charts (layouts with symbol/interval/crosshair/time sync), a legend per chart with study settings, a watchlist | `dh_chart_ext.workspace` | ✓ | ✓ as a deephaven.ui element (`?widget=ws`) | ✗ |
 | **C1 LWC plugins** | Drawing tools, shading, price lines, sync: plain LWC plugins with no Deephaven dependency | `@acme/chart-ext` (`ext/src/lwc-plugins`, `extensions.ts`) | ✓ (via C2) | ✓ (via C2) | ✓ attach to your own LWC chart directly |
 | **C2 Hook** | Applies C1 to charts drawn by Deephaven's plugin | `@acme/chart-ext` (`hook.ts`) + `dh-chart-ext` | ✓ automatic | ✓ `attachTvlExtensions` | n/a |
-| **C3 React kit** | `ChartToolbar` (TradingView-style: symbol search, interval, chart type, indicators dialog, range, scale), controlled; next: a table → LWC series adapter | `@acme/chart-react` (`react/`) | ✓ via the `acme.chart.Toolbar` element | ✓ | ✓ |
+| **C3 React kit** | `ChartToolbar` (symbol search, interval, chart type, indicators dialog, range, scale, layout and sync menu, watchlist toggle), `ChartLegend` (OHLC and study rows with show/hide, settings, remove), `Watchlist`; all controlled | `@acme/chart-react` (`react/`) | ✓ via the `acme.chart.Toolbar`, `acme.chart.Frame` and `acme.chart.Watchlist` elements | ✓ | ✓ |
 | **P Persistence** | Drawings, price lines and settings in a Deephaven input table (one schema) | L0 table + C1 | ✓ | ✓ | ✓ via JS API |
 
 Boundaries to keep in mind:
@@ -84,6 +84,12 @@ How the pieces fit:
 
 ## How toolbar selections work
 
+Settings and UI actions are the control path; data is a separate path. Ticks and bars stream to the
+browser over Barrage subscriptions (Deephaven's plugin, or the JS API in group C) and never go through
+Python. Browser-only actions never reach the server either: crosshair and time sync, zoom and scroll,
+the legend's values, the context menu's view actions. Drawings and price lines go straight from the
+browser to the annotations input table (`addRow`), not through Python callbacks.
+
 - **deephaven.ui workspace (A, and B when it hosts the workspace):** a toolbar change is a call to the
   workspace's Python `on_change`, over deephaven.ui's message channel. The component re-renders: it filters
   the shared bar table to the symbol, adds the selected studies (`update_by`), applies the range, composes
@@ -94,6 +100,17 @@ How the pieces fit:
 - **React with table data only (C):** state lives in React. A change re-subscribes: symbol and range are
   server-side filters (JS API `applyFilter`) on the published `bars_<res>` tables; studies are their
   precomputed columns. No Python runs per change.
+
+What each group gets from this round's features:
+
+| Feature | A deephaven.ui | B React + `WidgetView` | C React, table data |
+|---|---|---|---|
+| Legend rows: show/hide, remove | ✓ (Python state) | ✓ (same element) | ✓ (React state) |
+| Study settings (length, multiplier, color), several instances of one study | ✓ recomputed in Python (`update_by`) | ✓ | ✗ only the standard set's fixed columns; changing a parameter needs a server-side computation |
+| Watchlist | ✓ `acme.chart.Watchlist` over `source.quotes` | ✓ | ✓ `Watchlist` + `subscribeRows` over the published `quotes` |
+| Multi-chart layouts (1, 2, 3, 4) with symbol / interval sync | ✓ Python state per pane | ✓ | not built yet: the parts exist (`RawChart`, `bindSync`, the toolbar's layout menu) |
+| Crosshair and time sync | ✓ by `data-acme-sync-*` attributes the frame sets | ✓ | ✓ `bindSync` (page group) |
+| Context menu, Alt+H / Alt+T / Alt+R, Ctrl+Z undo | ✓ (ext, on every chart with drawings) | ✓ | ✓ (`bindDrawings`) |
 
 ## The hook
 
@@ -118,11 +135,15 @@ whenever the plugin reconfigures its series. An extension is
 
 | Feature | Source | Status |
 |---|---|---|
-| Crosshair sync across every chart (same time, each chart's own price) | ours (`ext/src/extensions.ts`) | Works in both hosts |
+| Crosshair sync across every chart (same time, each chart's own price), and time-range sync, in groups set by `data-acme-sync-crosshair` / `data-acme-sync-time` on any ancestor | ours (`ext/src/sync.ts`) | Verified: 4-chart layout (crosshair, time range follows the chart being worked), all groups |
 | Persistent price lines ("+" at the right edge; Shift+click deletes, Ctrl+click shares) | official `@tradingview/lwc-plugin-user-price-lines` 1.0.0, bound to the annotations table (`ext/src/persistent-price-lines.ts`, `dh_chart_ext/store.py`) | Verified in all three groups: saved per user, survive chart rebuilds and server restarts (parquet), others' shared lines in blue with the owner's name, soft delete |
 | Drawing tools: horizontal ray, trend line (vertical palette on the left edge; click to select, drag line or handle, Delete removes, Ctrl+click shares, Esc cancels; weak magnet to OHLC) | ours (`ext/src/drawings.ts`), saved as kind `drawing` | Verified in all three groups: saved per user, carried across resolutions (points are time + price), handle and whole-line drags, soft delete |
 | TradingView-style toolbar: symbol search, grouped interval menu, chart-type menu with icons, "ƒx Indicators" search dialog, range, % / log | ours (`react/src/ChartToolbar.tsx`); in deephaven.ui the `acme.chart.Toolbar` element, driven by Python state | Verified: deephaven.ui workspace and dashboard, and group C's `RawWorkspace` |
-| OHLC legend (symbol, O H L C, change from the previous close) following the crosshair | ours (`ext/src/legend.ts`) | Verified in all three groups |
+| OHLC legend (symbol, O H L C, change from the previous close) following the crosshair | ours (`ext/src/legend.ts`); workspaces use `ChartLegend` instead | Verified in all three groups |
+| Legend study rows: value at the crosshair in the study's color; on hover, show/hide, settings (parameters and color), remove. Study instances `{id, type, params, color, visible}`: add EMA twice with different lengths | ours (`react/src/ChartLegend.tsx`, `acme.chart.Frame`; types in `dh_chart_ext.data.STUDY_TYPES`) | Verified: deephaven.ui workspace (EMA 20 → 50 and recolor recomputed in Python; hide RSI drops its pane), group C (hide/remove) |
+| Watchlist: last, change, change % from the day's first trade, flash on tick, click to load the symbol in the active chart | ours (`react/src/Watchlist.tsx`; `dh_chart_ext.data.quotes`) | Verified: deephaven.ui workspace, group C |
+| Multi-chart layouts: 1, 2 side by side, 2 stacked, 3, 4; click a chart to make it active (the toolbar and watchlist act on it); sync symbol, interval, crosshair, time | ours (`dh_chart_ext.workspace`, toolbar layout menu) | Verified: deephaven.ui workspace; the whole layout is saved and restored |
+| Context menu (reset view, horizontal line at price, copy price, delete / share drawing, undo, remove my drawings); Alt+H horizontal line, Alt+T trend line, Alt+R reset view, Ctrl+Z undo; full-width horizontal line tool | ours (`ext/src/drawings.ts`) | Verified: deephaven.ui workspace |
 | Workspace settings (symbol, resolution, range, type, studies, scale) | `dh_chart_ext.store.load_settings` / `save_settings`, per (`layout`, `user`) | Verified: restored after reload and server restart |
 | Session/time-range shading | ours (`ext/src/lwc-plugins/time-range-shading.ts`) | Works in both hosts |
 

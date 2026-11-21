@@ -7,6 +7,10 @@ React components for trading charts, styled like TradingView desktop. From
   "ƒx Indicators" search dialog, range, and % / log scale. Controlled: pass `value` and `options`,
   get changes from `onChange(patch)`. Parts whose options are missing are left out. Styles are
   injected by the component; colors are CSS variables (`--acme-tb-*`) on `.acme-tb`.
+- **`ChartLegend`**: the legend over a Lightweight Charts chart: symbol and O H L C at the crosshair
+  with the change, then one row per study (value in its color; show/hide, settings dialog for
+  parameters and color, remove). Pass the chart and its series; studies match series by title.
+- **`Watchlist`**: symbol, last, change, change %, colored, flashing on each tick; click to select.
 
 ```tsx
 import { ChartToolbar } from '@acme/chart-react';
@@ -23,5 +27,6 @@ import { ChartToolbar } from '@acme/chart-react';
 />
 ```
 
-An ES module for bundlers, with types. Peer dependency: `react` 18 or 19. In deephaven.ui, the
-dh-chart-ext server plugin renders it as the `acme.chart.Toolbar` element.
+An ES module for bundlers, with types. Peer dependencies: `react` 18 or 19; `lightweight-charts` 5
+(types only, for `ChartLegend`). In deephaven.ui, the dh-chart-ext server plugin renders these as the
+`acme.chart.Toolbar`, `acme.chart.Frame` (chart + legend) and `acme.chart.Watchlist` elements.
