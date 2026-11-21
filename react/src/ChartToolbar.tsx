@@ -26,6 +26,10 @@ export interface ToolbarValue {
   watchlist?: boolean;
   /** in onChange only, with options.addStudies: the indicators dialog asks to add an instance of this type */
   addStudy?: string;
+  /** in onChange only, with options.compare: overlay this symbol (or expression) */
+  addCompare?: string;
+  /** the open side panel's key ("" or undefined: none), with options.panels */
+  panel?: string;
 }
 
 /** What follows the active chart across a multi-chart layout. */
@@ -58,8 +62,14 @@ export interface ToolbarOptions {
   layouts?: ToolbarItem[];
   /** offer the sync toggles in the layout menu */
   sync?: boolean;
-  /** offer the watchlist toggle */
+  /** offer the watchlist toggle (a single panel; see `panels` for several) */
   watchlist?: boolean;
+  /** side panels to toggle, one open at a time (keys "watchlist", "alerts" get icons) */
+  panels?: ToolbarItem[];
+  /** the symbol search also accepts spreads and ratios typed as expressions ("ES-NQ", "ZN/ZB", "2*ZN-ZB") */
+  expressions?: boolean;
+  /** offer "Compare": overlay another symbol */
+  compare?: boolean;
 }
 
 export interface ChartToolbarProps {
@@ -77,7 +87,9 @@ const SYNC_ITEMS: Array<[keyof SyncValue, string]> = [
   ['symbol', 'Symbol'], ['interval', 'Interval'], ['crosshair', 'Crosshair'], ['time', 'Time'],
 ];
 
-type Open = 'symbol' | 'interval' | 'type' | 'range' | 'layout' | null;
+type Open = 'symbol' | 'interval' | 'type' | 'range' | 'layout' | 'compare' | null;
+
+const PANEL_ICON: Record<string, ReactNode> = { watchlist: icons.watchlist, alerts: icons.bell };
 
 export function ChartToolbar({ value, options, onChange, className }: ChartToolbarProps) {
   injectToolbarStyles();
@@ -117,7 +129,9 @@ export function ChartToolbar({ value, options, onChange, className }: ChartToolb
           {icons.search}
           <span className="acme-tb-sym">{value.symbol ?? 'Symbol'}</span>
         </button>
-        {open === 'symbol' && <SymbolSearch items={options.symbols} value={value.symbol} onPick={symbol => pick({ symbol })} />}
+        {open === 'symbol' && (
+          <SymbolSearch items={options.symbols} value={value.symbol} expressions={options.expressions} onPick={symbol => pick({ symbol })} />
+        )}
       </span>,
       sep('s1'),
     );
@@ -156,6 +170,24 @@ export function ChartToolbar({ value, options, onChange, className }: ChartToolb
         {icons.fx}
         Indicators{n ? <span style={{ color: 'var(--acme-tb-muted)' }}> · {n}</span> : null}
       </button>,
+    );
+  }
+  if (options.compare && options.symbols?.length) {
+    parts.push(
+      <span key="cmp" style={{ position: 'relative' }}>
+        <button className={`acme-tb-btn${open === 'compare' ? ' on' : ''}`} onClick={() => toggle('compare')} title="Compare or add symbol">
+          {icons.compare}
+          Compare
+        </button>
+        {open === 'compare' && (
+          <SymbolSearch
+            items={options.symbols.filter(s => s.key !== value.symbol)}
+            expressions={options.expressions}
+            placeholder="Compare with"
+            onPick={addCompare => pick({ addCompare })}
+          />
+        )}
+      </span>,
     );
   }
   parts.push(<span key="sp" className="acme-tb-spacer" />);
@@ -221,7 +253,21 @@ export function ChartToolbar({ value, options, onChange, className }: ChartToolb
       </span>,
     );
   }
-  if (options.watchlist) {
+  if (options.panels?.length) {
+    parts.push(sep('s5'));
+    for (const p of options.panels) {
+      parts.push(
+        <button
+          key={`panel-${p.key}`}
+          className={`acme-tb-btn${value.panel === p.key ? ' active' : ''}`}
+          title={p.label}
+          onClick={() => onChange({ panel: value.panel === p.key ? '' : p.key })}
+        >
+          {PANEL_ICON[p.key] ?? p.label}
+        </button>,
+      );
+    }
+  } else if (options.watchlist) {
     parts.push(
       <button
         key="wl"
@@ -295,18 +341,39 @@ function Menu({
   );
 }
 
-function SymbolSearch({ items, value, onPick }: { items: ToolbarItem[]; value?: string; onPick: (key: string) => void }) {
+const isExpression = (s: string) => /[-+*/()]/.test(s);
+
+function SymbolSearch({
+  items,
+  value,
+  onPick,
+  expressions,
+  placeholder = 'Search symbol',
+}: {
+  items: ToolbarItem[];
+  value?: string;
+  onPick: (key: string) => void;
+  expressions?: boolean;
+  placeholder?: string;
+}) {
   const [q, setQ] = useState('');
   const shown = useMemo(() => {
-    const s = q.trim().toLowerCase();
-    return s ? items.filter(i => i.key.toLowerCase().includes(s) || i.label.toLowerCase().includes(s) || i.description?.toLowerCase().includes(s)) : items;
-  }, [items, q]);
+    const raw = q.trim();
+    const s = raw.toLowerCase();
+    // a typed expression ("es-nq") is offered first, symbols upper-cased: the server checks it
+    const expr: ToolbarItem[] =
+      expressions && isExpression(raw)
+        ? [{ key: raw.replace(/\s+/g, '').toUpperCase(), label: raw.replace(/\s+/g, '').toUpperCase(), description: /\//.test(raw) ? 'Ratio' : 'Spread' }]
+        : [];
+    const its = s && !expr.length ? items.filter(i => i.key.toLowerCase().includes(s) || i.label.toLowerCase().includes(s) || i.description?.toLowerCase().includes(s)) : items;
+    return [...expr, ...(expr.length ? [] : its)];
+  }, [items, q, expressions]);
   return (
     <div className="acme-tb-pop" style={{ left: 0, width: 260 }}>
       <input
         className="acme-tb-search"
         autoFocus
-        placeholder="Search symbol"
+        placeholder={expressions ? `${placeholder}, or a spread: ES-NQ, ZN/ZB` : placeholder}
         value={q}
         onChange={e => setQ(e.target.value)}
         onKeyDown={e => e.key === 'Enter' && shown[0] && onPick(shown[0].key)}

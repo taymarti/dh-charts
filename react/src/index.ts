@@ -1,7 +1,7 @@
 /**
  * @acme/chart-react: React components for trading charts, styled like TradingView desktop.
  * Used directly by React apps, and by deephaven.ui through the dh-chart-ext server plugin
- * (the `acme.chart.Toolbar`, `acme.chart.Frame` and `acme.chart.Watchlist` elements).
+ * (the `acme.chart.Toolbar`, `acme.chart.Frame`, `acme.chart.Watchlist` and `acme.chart.AlertsPanel` elements).
  */
 export {
   ChartToolbar,
@@ -11,6 +11,15 @@ export {
   type ToolbarOptions,
   type ToolbarValue,
 } from './ChartToolbar';
-export { ChartLegend, STUDY_PALETTE, type ChartLegendProps, type LegendStudy, type StudyPatch, type StudyTypes } from './ChartLegend';
+export {
+  ChartLegend,
+  STUDY_PALETTE,
+  type ChartLegendProps,
+  type LegendStatus,
+  type LegendStudy,
+  type StudyPatch,
+  type StudyTypes,
+} from './ChartLegend';
+export { AlertsPanel, type AlertsPanelProps, type AlertsPanelRow, type NewAlert } from './AlertsPanel';
 export { Watchlist, type WatchlistProps, type WatchlistRow } from './Watchlist';
 export { injectToolbarStyles } from './styles';

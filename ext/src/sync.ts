@@ -22,6 +22,9 @@ interface Member {
   element: HTMLElement;
 }
 
+/** Event a synced chart fires when it is asked to show a range older than its data. */
+export const NEED_HISTORY = 'acme-need-history';
+
 const members = new Set<Member>();
 let syncing = false; // our own setCrosshairPosition / setVisibleRange must not echo back
 
@@ -72,6 +75,14 @@ export function bindSync(chart: IChartApi, series: ISeriesApi<SeriesType>, eleme
     try {
       for (const m of peers(me, 'time')) {
         try {
+          // a range older than the peer's data: ask its host to load history (bindNavigation listens)
+          // and to show the range once it is there
+          const first = (m.series.data()[0] as { time?: unknown } | undefined)?.time;
+          if (first != null && (r.from as number) < Number(first)) {
+            m.element.dispatchEvent(
+              new CustomEvent(NEED_HISTORY, { bubbles: true, detail: { before: r.from as number, from: r.from, to: r.to } }),
+            );
+          }
           m.chart.timeScale().setVisibleRange(r);
         } catch {
           /* a chart with no data yet */

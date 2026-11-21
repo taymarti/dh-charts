@@ -16,6 +16,13 @@ never go through Python: they stream to the browser over Barrage. Crosshair and 
 price lines and the legend's values are browser-only (the frame says which charts sync).
 
 The state is saved per (`layout`, `user`) when an annotations table is given, and restored on open.
+
+History: each chart holds a window of history (its lookback) behind a data.Lookback, and the range
+menu sets the initial view inside it. Scrolling into the oldest loaded bar (or "go to date" before
+it) calls Python to widen the lookback; the chart's table grows in place, so the view stays put.
+
+Symbols can be spread or ratio expressions ("ES-NQ", "ZN/ZB", "2*ZN-ZB"): typed into the symbol
+search, computed from the legs' ticks (data.spread_ticks), cached per source and shared.
 """
 from __future__ import annotations
 
@@ -29,11 +36,18 @@ from deephaven.time import dh_now
 
 from .charts import STUDY_COLORS, price_chart, tick_chart
 from .data import (
-    STANDARD_RESOLUTIONS, STUDY_TYPES, bars, for_symbol, in_range, quotes, resolution_seconds, standard_set, study_label,
+    STANDARD_RESOLUTIONS, STUDIES, STUDY_TYPES, Lookback, bars, for_symbol, in_range, is_expression, parse_expression,
+    quotes, resolution_seconds, spread_ticks, standard_set, study_label,
 )
-from .store import annotations_element, load_settings, save_settings
+from .sessions import SESSIONS, session_for, sessions_table
+from .store import load_settings, save_settings
 
-RANGES = {"5m": 300, "15m": 900, "30m": 1800, "1h": 3600, "4h": 14400, "All": None}
+# the range menu: the initial view window (seconds; None: everything loaded)
+RANGES = {"5m": 300, "15m": 900, "30m": 1800, "1h": 3600, "4h": 14400, "1D": 86400, "5D": 432000, "All": None}
+# history loaded at first, per resolution (seconds); scrolling back widens it, up to MAX_LOOKBACK
+DEFAULT_LOOKBACK = {"tick": 3600, "1s": 4 * 3600, "5s": 12 * 3600, "1m": 2 * 86400, "5m": 5 * 86400}
+MAX_LOOKBACK = 30 * 86400
+COMPARE_COLORS = ["#2962ff", "#e91e63", "#00bcd4", "#8bc34a", "#ffeb3b"]
 CHART_TYPES = {"candle": "Candles", "bar": "Bars", "line": "Line", "area": "Area"}
 LAYOUTS = {"1": ("1 chart", 1), "2h": ("2 charts, side by side", 2), "2v": ("2 charts, stacked", 2),
            "3h": ("3 charts", 3), "4": ("4 charts", 4)}
@@ -53,9 +67,65 @@ class ChartSource:
         self._bars = {r: bars(ticks, r, by=by) for r in self.resolutions}
         self._symbols = ticks.select_distinct(by)
         self.quotes = quotes(ticks, by=by)
+        self._spreads: dict = {}
+        self._standard: Optional[dict] = None
+        self._values: Optional[Table] = None
 
     def bars(self, resolution: str) -> Table:
         return self._bars[resolution]
+
+    # an instrument is a symbol or a spread/ratio expression over symbols
+
+    def instrument_ticks(self, sym: str, symbols: Sequence[str]) -> Table:
+        """Ticks of one instrument (Timestamp, Price, ...), without the symbol column."""
+        if not is_expression(sym):
+            return for_symbol(self.ticks, sym, by=self.by)
+        key = (sym, "tick")
+        if key not in self._spreads:
+            self._spreads[key] = spread_ticks(self.ticks, sym, symbols, by=self.by)
+        return self._spreads[key].drop_columns(self.by)
+
+    def instrument_bars(self, sym: str, resolution: str, symbols: Sequence[str]) -> Table:
+        """Bars of one instrument at `resolution`; a spread's bars are built once and shared."""
+        if not is_expression(sym):
+            return for_symbol(self.bars(resolution), sym, by=self.by)
+        key = (sym, resolution)
+        if key not in self._spreads:
+            tk = self._spreads.get((sym, "tick")) or spread_ticks(self.ticks, sym, symbols, by=self.by)
+            self._spreads[(sym, "tick")] = tk
+            self._spreads[key] = bars(tk, resolution, by=self.by, size_col=None)
+        return self._spreads[key].drop_columns(self.by)
+
+    def standard(self) -> dict[str, Table]:
+        if self._standard is None:
+            self._standard = standard_set(self.ticks, self.resolutions, by=self.by)
+        return self._standard
+
+    def alert_values(self, resolutions: Sequence[str] = ("1m", "5m")) -> Table:
+        """What alerts watch, one row per (Sym, Source): Source "Last" is the last trade; "<column>@<res>"
+        a standard study's value on the forming bar. Columns Sym, Source, Value, ValueNs."""
+        if self._values is None:
+            from deephaven import merge
+
+            parts = [self.quotes.view([f"Sym = {self.by}", "Source = `Last`", "Value = Last", "ValueNs = epochNanos(Updated)"])]
+            for res in resolutions:
+                last = self.standard()[f"bars_{res}"].last_by(self.by)
+                for col in self._study_columns():
+                    parts.append(last.view([f"Sym = {self.by}", f"Source = `{col}@{res}`", f"Value = (double) {col}",
+                                            "ValueNs = epochNanos(Updated)"]))
+            self._values = merge(parts)
+        return self._values
+
+    def alert_sources(self, resolutions: Sequence[str] = ("1m", "5m")) -> list[dict]:
+        """The sources an alert can watch, for UIs: [{key, label}]."""
+        out = [{"key": "Last", "label": "Price (last trade)"}]
+        for res in resolutions:
+            out += [{"key": f"{c}@{res}", "label": f"{c.replace('_', ' ')} ({res})"} for c in self._study_columns()]
+        return out
+
+    @staticmethod
+    def _study_columns() -> list[str]:
+        return [c for s in STUDIES.values() if s.pane != "volume" for c in s.columns() if not c.endswith("_Mid")]
 
     @property
     def symbols_table(self) -> Table:
@@ -64,8 +134,8 @@ class ChartSource:
 
     def standard_tables(self) -> dict[str, Table]:
         """L0's standard set (bars_<res> with every standard study) for clients that only filter,
-        and `quotes` for their watchlists."""
-        return {**standard_set(self.ticks, self.resolutions, by=self.by), "quotes": self.quotes}
+        `quotes` for their watchlists, and `sessions` (trading hours per symbol)."""
+        return {**self.standard(), "quotes": self.quotes, "sessions": sessions_table()}
 
 
 # ----------------------------------------------------------------------------- elements
@@ -80,15 +150,42 @@ def toolbar_element(value: dict, options: dict, on_change):
 
 
 def frame_element(chart, *, title: str, studies: list, study_types: dict, on_study_change, multi: bool, active: bool,
-                  on_activate, sync_crosshair: str, sync_time: str):
-    """One chart with its legend (`acme.chart.Frame`): study rows report show/hide, settings and
-    remove through `on_study_change(patch)`; in a multi-chart layout a click calls `on_activate()`."""
+                  on_activate, sync_crosshair: str, sync_time: str, view_window: Optional[int] = None,
+                  bar_seconds: Optional[int] = None, session: Optional[dict] = None, on_history=None,
+                  history_complete: bool = False):
+    """One chart with its legend and navigation (`acme.chart.Frame`): study rows report show/hide,
+    settings and remove through `on_study_change(patch)`; in a multi-chart layout a click calls
+    `on_activate()`. `view_window` (seconds) is the view to show; scrolling into the oldest bar
+    calls `on_history(before)` (before: UTC seconds to reach, or None for "more").
+    `bar_seconds` drives the bar-close countdown; `session` the market status."""
     from deephaven.ui.elements import BaseElement
 
     return BaseElement(
         "acme.chart.Frame", chart, title=title, studies=studies, study_types=study_types, on_study_change=on_study_change,
         multi=multi, active=active, on_activate=on_activate, sync_crosshair=sync_crosshair, sync_time=sync_time,
+        view_window=view_window, bar_seconds=bar_seconds, session=session, on_history=on_history,
+        history_complete=history_complete,
     )
+
+
+def services_element(*, annotations: Optional[Table] = None, alerts: Optional[Table] = None,
+                     sessions: Optional[dict] = None, user: Optional[str] = None):
+    """Page services for the chart extensions (`acme.chart.Services`; draws only notifications):
+    the annotation store, the alert store (alert lines, context-menu alerts, toasts when one fires)
+    and the session calendar. `user` names the user; None lets the browser use a per-browser id."""
+    from deephaven.ui.elements import BaseElement
+
+    props = {k: v for k, v in {"annotations": annotations, "alerts": alerts, "sessions": sessions, "owner": user}.items()
+             if v is not None}
+    return BaseElement("acme.chart.Services", **props)
+
+
+def alerts_panel_element(*, symbol: Optional[str], sources: list, symbols: list):
+    """The alerts panel (`acme.chart.AlertsPanel`): the user's alerts, and a form for new ones on the
+    symbol shown. Reads and writes the page's alert store (from services_element)."""
+    from deephaven.ui.elements import BaseElement
+
+    return BaseElement("acme.chart.AlertsPanel", symbol=symbol, sources=sources, symbols=symbols)
 
 
 def watchlist_element(table: Table, *, value: Optional[str], on_select, title: str = "Watchlist", symbol_column: str = "Sym"):
@@ -146,19 +243,21 @@ def _cast_params(type_: str, params: dict) -> dict:
 
 def new_pane(symbol, resolution, range_, chart_type, studies, scale) -> dict:
     return {"symbol": symbol, "resolution": resolution, "range": range_, "chartType": chart_type,
-            "studies": studies, "scale": scale}
+            "studies": studies, "scale": scale, "compare": []}
 
 
 def restore_state(saved: dict, default_pane: dict, watchlist: bool) -> dict:
     """The workspace state from saved settings (v2; v1 was one pane with study keys), else defaults."""
     if saved.get("version") == 2 and saved.get("panes"):
+        panel = saved.get("panel", "watchlist" if saved.get("watchlist", watchlist) else None)
         return {
             "version": 2,
             "layout": saved.get("layout") if saved.get("layout") in LAYOUTS else "1",
             "active": int(saved.get("active", 0)),
             "sync": {**DEFAULT_SYNC, **(saved.get("sync") or {})},
-            "watchlist": bool(saved.get("watchlist", watchlist)),
-            "panes": [{**default_pane, **p, "studies": [s for s in p.get("studies", []) if s.get("type") in STUDY_TYPES]}
+            "panel": panel if panel in PANELS else None,
+            "panes": [{**default_pane, **{k: v for k, v in p.items() if k != "lookback"},
+                       "studies": [s for s in p.get("studies", []) if s.get("type") in STUDY_TYPES]}
                       for p in saved["panes"]],
         }
     pane = dict(default_pane)
@@ -167,7 +266,11 @@ def restore_state(saved: dict, default_pane: dict, watchlist: bool) -> dict:
                                                   ("chart_type", "chartType"), ("scale", "scale")] if k1 in saved})
         if "studies" in saved:
             pane["studies"] = studies_from_keys(saved["studies"])
-    return {"version": 2, "layout": "1", "active": 0, "sync": dict(DEFAULT_SYNC), "watchlist": watchlist, "panes": [pane]}
+    return {"version": 2, "layout": "1", "active": 0, "sync": dict(DEFAULT_SYNC),
+            "panel": "watchlist" if watchlist else None, "panes": [pane]}
+
+
+PANELS = {"watchlist": "Watchlist", "alerts": "Alerts"}
 
 
 def _pane_patch(pane: dict, patch: dict) -> dict:
@@ -175,8 +278,17 @@ def _pane_patch(pane: dict, patch: dict) -> dict:
     for k in ("symbol", "resolution", "range", "chartType", "scale"):
         if k in patch:
             p[k] = patch[k]
+    if "symbol" in patch or "resolution" in patch:
+        p.pop("lookback", None)  # history loaded for the old instrument does not carry over
     if patch.get("addStudy") in STUDY_TYPES:
         p["studies"] = add_study(p["studies"], patch["addStudy"])
+    if patch.get("addCompare"):
+        cur = p.get("compare") or []
+        sym = str(patch["addCompare"])
+        if sym != p.get("symbol") and all(c["sym"] != sym for c in cur):
+            used = {c["color"] for c in cur}
+            color = next((c for c in COMPARE_COLORS if c not in used), COMPARE_COLORS[0])
+            p["compare"] = [*cur, {"sym": sym, "color": color, "visible": True}]
     return p
 
 
@@ -209,14 +321,39 @@ def apply_toolbar(state: dict, patch: dict, symbols: Sequence[str]) -> dict:
             panes = [{**p, "symbol": panes[active]["symbol"]} for p in panes]
         if s["sync"]["interval"] and not sync["interval"]:
             panes = [{**p, "resolution": panes[active]["resolution"]} for p in panes]
-    if "watchlist" in patch:
-        s["watchlist"] = bool(patch["watchlist"])
+    if "panel" in patch:
+        s["panel"] = patch["panel"] if patch["panel"] in PANELS else None
+    if "watchlist" in patch:  # the toolbar's older single toggle
+        s["panel"] = "watchlist" if patch["watchlist"] else None
     s["panes"] = panes
     return s
 
 
+def valid_instrument(sym, symbols: Sequence[str]) -> bool:
+    """A known symbol, or an expression over known symbols."""
+    if not is_expression(str(sym)):
+        return str(sym) in symbols
+    try:
+        parse_expression(str(sym), symbols)
+        return True
+    except ValueError:
+        return False
+
+
 def apply_study_patch(pane: dict, patch: dict) -> dict:
-    """The pane after a legend action: {id, visible} / {id, remove} / {id, params, color}."""
+    """The pane after a legend action: {id, visible} / {id, remove} / {id, params, color}.
+    Compared symbols have ids "cmp:<sym>"."""
+    pid = str(patch.get("id", ""))
+    if pid.startswith("cmp:"):
+        sym = pid[4:]
+        cmp_ = []
+        for c in pane.get("compare") or []:
+            if c["sym"] != sym:
+                cmp_.append(c)
+            elif not patch.get("remove"):
+                cmp_.append({**c, **({"visible": bool(patch["visible"])} if "visible" in patch else {}),
+                             **({"color": str(patch["color"])} if patch.get("color") else {})})
+        return {**pane, "compare": cmp_}
     out = []
     for st in pane["studies"]:
         if st["id"] != patch.get("id"):
@@ -244,15 +381,49 @@ def _interval_group(resolution: str) -> str:
 
 # ----------------------------------------------------------------------------- components
 
+def default_lookback(resolution: str, range_: str) -> Optional[int]:
+    """Seconds of history to load first: the resolution's default, at least twice the view window."""
+    window = RANGES.get(range_)
+    if window is None:
+        return None  # "All": everything there is
+    return max(DEFAULT_LOOKBACK.get(resolution, 86400), 2 * window)
+
+
 @ui.component
 def chart_pane(source: ChartSource, pane: dict, index: int, active: bool, multi: bool, sync_crosshair: str,
-               sync_time: str, on_activate, on_pane):
-    """One chart of the workspace, with its legend. Rebuilds only when its own settings change."""
+               sync_time: str, on_activate, on_pane, symbols: list):
+    """One chart of the workspace, with its legend. Rebuilds only when its own settings change;
+    loading more history moves its Lookback instead, so the chart and the user's view stay."""
     sym, res, rng, ctype, scl = pane["symbol"], pane["resolution"], pane["range"], pane["chartType"], pane["scale"]
-    studies_key = json.dumps(pane["studies"], sort_keys=True)
+    compare = [c for c in pane.get("compare") or [] if c.get("visible", True)] if res != "tick" else []
+    studies_key = json.dumps([pane["studies"], compare], sort_keys=True)
 
-    # the range start is fixed when the selection is made (a rolling window would re-filter every cycle)
-    since = ui.use_memo(lambda: None if RANGES.get(rng) is None else dh_now().minusSeconds(RANGES[rng]), [rng, sym, res])
+    # history: how far back this chart's table reaches. The pane's "lookback" (seconds) grows as the
+    # user scrolls back; a new symbol or interval starts over (apply_toolbar drops it)
+    base = default_lookback(res, rng)
+    key = f"{sym}|{res}"
+    secs = None if base is None else max(base, int(pane.get("lookback") or 0))
+    if secs is not None and secs > MAX_LOOKBACK:
+        secs = None
+    lookback = ui.use_memo(lambda: Lookback(None if secs is None else dh_now().minusSeconds(secs)), [])
+
+    def move_lookback():
+        want = None if secs is None else dh_now().minusSeconds(secs)
+        if (want is None) != (lookback.since is None) or (want is not None and abs(
+                want.getEpochSecond() - lookback.since.getEpochSecond()) > 60):
+            lookback.set(want)
+
+    ui.use_effect(move_lookback, [secs, key])
+
+    def on_history(before=None):
+        import time as _t
+
+        cur = secs if secs is not None else MAX_LOOKBACK
+        if before is not None:
+            want = int(_t.time() - float(before)) + 3600  # reach the date, plus an hour before it
+        else:
+            want = cur * 2  # scrolling back: double what is loaded
+        on_pane(index, lambda p: {**p, "lookback": max(cur, want)})
 
     shown = [s for s in pane["studies"] if s.get("visible", True)] if res != "tick" else []
 
@@ -260,19 +431,24 @@ def chart_pane(source: ChartSource, pane: dict, index: int, active: bool, multi:
         if sym is None:
             return ui.text("Waiting for data...")
         if res == "tick":
-            return tick_chart(in_range(for_symbol(source.ticks, sym, by=source.by), since), title=sym, scale=scl)
+            return tick_chart(in_range(source.instrument_ticks(sym, symbols), lookback), title=sym, scale=scl)
         return price_chart(
-            for_symbol(source.bars(res), sym, by=source.by), since=since, chart_type=ctype, scale=scl, title=sym,
+            source.instrument_bars(sym, res, symbols), since=lookback, chart_type=ctype, scale=scl, title=sym,
             studies=[STUDY_TYPES[s["type"]].build(s["params"]) for s in shown], colors=[s.get("color") for s in shown],
+            compare=[(c["sym"], source.instrument_bars(c["sym"], res, symbols), c["color"]) for c in compare],
         )
 
-    chart = ui.use_memo(build, [sym, res, rng, ctype, studies_key, scl, since])
+    chart = ui.use_memo(build, [sym, res, ctype, studies_key, scl])
 
     legend = [] if res == "tick" else [
         {"id": s["id"], "type": s["type"], "params": s["params"], "label": study_label(s["type"], s["params"]),
          "columns": STUDY_TYPES[s["type"]].build(s["params"]).columns(), "color": s.get("color"),
          "visible": s.get("visible", True)}
         for s in pane["studies"]
+    ] + [
+        {"id": f"cmp:{c['sym']}", "label": c["sym"], "columns": [c["sym"]], "color": c["color"],
+         "visible": c.get("visible", True), "kind": "compare"}
+        for c in (pane.get("compare") or [])
     ]
     study_types = {k: {"label": t.label, "params": t.params} for k, t in STUDY_TYPES.items()}
 
@@ -282,6 +458,8 @@ def chart_pane(source: ChartSource, pane: dict, index: int, active: bool, multi:
         on_study_change=lambda patch: on_pane(index, lambda p: apply_study_patch(p, patch)),
         multi=multi, active=active, on_activate=lambda: on_activate(index),
         sync_crosshair=sync_crosshair, sync_time=sync_time,
+        view_window=RANGES.get(rng), bar_seconds=None if res == "tick" else resolution_seconds(res),
+        session=session_for(sym) if sym else None, on_history=on_history, history_complete=secs is None,
     )
 
 
@@ -316,6 +494,7 @@ def chart_workspace(
     user: Optional[str] = None,
     layout: str = "default",
     watchlist: bool = False,
+    alerts: Optional[Table] = None,
 ):
     """Toolbar + one to four charts + optional watchlist. The arguments are the first-time defaults
     (`studies` as standard keys: "EMA_20", "BB_20_2", "RSI_14", "Volume", ...).
@@ -324,7 +503,10 @@ def chart_workspace(
     drawings persist per symbol, per `user` (None: a per-browser id), and the workspace's state
     (layout, panes, studies, sync, watchlist) is saved per (`layout`, `user`) and restored on open.
     Give each panel of a dashboard its own `layout`. With user=None the state is saved under
-    "default", shared by every anonymous viewer of that layout (Community has no user identity)."""
+    "default", shared by every anonymous viewer of that layout (Community has no user identity).
+
+    alerts: the app's alert table (alerts.alert_table, evaluated by an alerts.AlertEngine); with it,
+    charts offer alerts (context menu, Alt+A, on drawings), show them, and the Alerts panel lists them."""
     owner = user or "default"
     symbols = sorted(str(s) for s in ui.use_column_data(source.symbols_table)) if source.symbols_table is not None else []
 
@@ -357,6 +539,10 @@ def chart_workspace(
     cur = panes[active]
 
     def on_change(patch: dict):
+        patch = dict(patch)
+        for k in ("symbol", "addCompare"):  # ignore unknown symbols and unreadable expressions
+            if k in patch and not valid_instrument(patch[k], symbols):
+                patch.pop(k)
         set_state(lambda s: apply_toolbar(s, patch, symbols))
 
     def on_pane(i: int, f):
@@ -368,7 +554,7 @@ def chart_workspace(
     sync = state["sync"]
     cells = [
         chart_pane(source, p, i, i == active, multi, "page" if sync["crosshair"] else "none",
-                   f"ws-{wid}" if sync["time"] else "none", on_activate, on_pane)
+                   f"ws-{wid}" if sync["time"] else "none", on_activate, on_pane, symbols)
         for i, p in enumerate(panes)
     ]
 
@@ -383,24 +569,32 @@ def chart_workspace(
             {"key": k, "label": t.label, "group": t.group} for k, t in STUDY_TYPES.items()
         ],
         "addStudies": True,
+        "expressions": True,
+        "compare": cur["resolution"] != "tick",
         "scales": True,
         "layouts": [{"key": k, "label": v[0]} for k, v in LAYOUTS.items()],
         "sync": True,
-        "watchlist": True,
+        "panels": [{"key": k, "label": v} for k, v in PANELS.items() if k != "alerts" or alerts is not None],
     }
+    effective_scale = "percent" if [c for c in cur.get("compare") or [] if c.get("visible", True)] and cur["scale"] == "normal" \
+        else cur["scale"]
     value = {
         "symbol": cur["symbol"], "resolution": cur["resolution"], "range": cur["range"], "chartType": cur["chartType"],
-        "studies": [s["type"] for s in cur["studies"]], "scale": cur["scale"], "layout": state["layout"],
-        "sync": sync, "watchlist": state["watchlist"],
+        "studies": [s["type"] for s in cur["studies"]], "scale": effective_scale, "layout": state["layout"],
+        "sync": sync, "panel": state.get("panel") or "",
     }
 
     main = ui.flex(toolbar_element(value, options, on_change), _grid(state["layout"], cells),
                    direction="column", gap="size-0", flex_grow=1, min_width=0, height="100%")
     body = [main]
-    if state["watchlist"]:
+    panel = state.get("panel")
+    if panel == "watchlist":
         body.append(ui.view(watchlist_element(source.quotes, value=cur["symbol"], on_select=lambda s: on_change({"symbol": s})),
                             width="size-3400", flex_shrink=0, height="100%"))
+    elif panel == "alerts" and alerts is not None:
+        body.append(ui.view(alerts_panel_element(symbol=cur["symbol"], sources=source.alert_sources(), symbols=symbols),
+                            width="size-3600", flex_shrink=0, height="100%"))
     parts = [ui.flex(*body, direction="row", gap="size-0", flex_grow=1, height="100%", min_height=0)]
-    if annotations is not None:
-        parts.append(annotations_element(annotations, user))  # draws nothing; feeds the chart extensions
+    # draws only notifications: feeds the chart extensions their stores and the session calendar
+    parts.append(services_element(annotations=annotations, alerts=alerts, sessions=SESSIONS, user=user))
     return ui.flex(*parts, direction="column", gap="size-0", flex_grow=1, height="100%")

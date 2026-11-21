@@ -35,19 +35,30 @@ import {
   type UTCTimestamp,
 } from 'lightweight-charts';
 import {
-  TimeRangeShading,
-  alternatingBlocks,
+  bindCountdown,
   bindDrawings,
   bindLegend,
+  bindNavigation,
   bindPriceLines,
+  bindSessionShading,
   bindSync,
+  describeAlert,
+  formatDuration,
+  marketStatus,
+  onPageAlertStore,
+  onPageSessions,
+  sessionSpecFor,
   subscribeRows,
   tableAnnotationStore,
+  type AlertStore,
+  type Navigation,
 } from '@acme/chart-ext';
 import {
+  AlertsPanel,
   ChartLegend,
   ChartToolbar,
   Watchlist,
+  type LegendStatus,
   type LegendStudy,
   type ToolbarOptions,
   type ToolbarValue,
@@ -68,6 +79,8 @@ export function RawChart({
   scale = 'normal',
   colors = COLORS,
   onChart,
+  viewWindow,
+  barSeconds,
 }: {
   table: string;
   sym: string;
@@ -79,7 +92,14 @@ export function RawChart({
   colors?: string[];
   /** with it, the host draws the legend (ChartLegend) from the chart and series it gets here */
   onChart?: (lwc: { chart: IChartApi; series: ISeriesApi<SeriesType>[] } | null) => void;
+  /** seconds to show at the end of the data (null: all); the whole history is loaded either way */
+  viewWindow?: number | null;
+  /** bar length, for the bar-close countdown */
+  barSeconds?: number;
 }) {
+  const nav = useRef<Navigation | null>(null);
+  const windowRef = useRef(viewWindow);
+  windowRef.current = viewWindow;
   const dh = useApi();
   const connection = useConnection();
   const el = useRef<HTMLDivElement>(null);
@@ -105,9 +125,13 @@ export function RawChart({
       }),
     );
     // our plugins, attached directly: no Deephaven involved
-    candles.attachPrimitive(new TimeRangeShading(alternatingBlocks(900, 'rgba(41, 98, 255, 0.12)')));
+    const unbindSessions = bindSessionShading(candles, sym); // the page's calendar (the `sessions` table)
     const unbindLegend = onChart ? () => {} : bindLegend(chart, candles, el.current!, sym);
     const unbindSync = bindSync(chart, candles, el.current!);
+    // this chart holds the symbol's whole history, so navigation never needs to load more
+    const navigation = bindNavigation(chart, candles, el.current!, { viewWindow: windowRef.current ?? null, historyComplete: true, settleMs: 0 });
+    nav.current = navigation;
+    const unbindCountdown = barSeconds ? bindCountdown(chart, candles, el.current!, barSeconds) : () => {};
     onChart?.({ chart, series: [candles, ...lines] });
 
     let closed = false;
@@ -171,11 +195,17 @@ export function RawChart({
       unbindLines(); // before chart.remove(): it detaches from the series
       unbindLegend();
       unbindSync();
+      unbindSessions();
+      navigation.dispose();
+      nav.current = null;
+      unbindCountdown();
       onChart?.(null);
       chartRef.current = null;
       chart.remove();
     };
-  }, [dh, connection, name, sym, studies.join(','), colors.join(','), annotations, user]);
+  }, [dh, connection, name, sym, studies.join(','), colors.join(','), annotations, user, barSeconds]);
+
+  useEffect(() => nav.current?.update({ viewWindow: viewWindow ?? null }), [viewWindow]);
 
   // the price scale mode follows `scale` without rebuilding the chart
   useEffect(() => {
@@ -245,9 +275,70 @@ function toolbarOptions(symbols: string[]): ToolbarOptions {
       { key: 'BB_20_2', label: 'Bollinger Bands (20, 2)', group: 'Bands and channels' },
       { key: 'VWAP', label: 'VWAP', group: 'Volume' },
     ],
+    ranges: Object.keys(RANGES).map(k => ({ key: k, label: k })),
     scales: true,
-    watchlist: true,
+    panels: [
+      { key: 'watchlist', label: 'Watchlist' },
+      { key: 'alerts', label: 'Alerts' },
+    ],
   };
+}
+
+/** The view window per range choice (seconds; null: all). */
+const RANGES: Record<string, number | null> = { '30m': 1800, '1h': 3600, '4h': 14400, '1D': 86400, '5D': 432000, All: null };
+const BAR_SECONDS: Record<string, number> = { '1s': 1, '5s': 5, '1m': 60, '5m': 300 };
+const ALERT_SOURCES = [
+  { key: 'Last', label: 'Price (last trade)' },
+  ...['EMA_20', 'EMA_50', 'SMA_20', 'VWAP', 'RSI_14'].flatMap(c =>
+    ['1m', '5m'].map(r => ({ key: `${c}@${r}`, label: `${c.replace(/_/g, ' ')} (${r})` })),
+  ),
+];
+
+/** The market status for a symbol from the page's session calendar, refreshed every 15 s. */
+function useMarketStatus(sym: string): LegendStatus | undefined {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 15000);
+    const off = onPageSessions(() => setNow(Date.now()));
+    return () => {
+      clearInterval(t);
+      off();
+    };
+  }, []);
+  return useMemo(() => {
+    const spec = sessionSpecFor(sym);
+    if (!spec) return undefined;
+    const st = marketStatus(spec, now / 1000);
+    const change = st.until ? `${st.state === 'closed' ? 'opens' : st.state === 'regular' ? 'closes' : 'changes'} in ${formatDuration(st.until - now / 1000)}` : '';
+    return { state: st.state, label: st.label, detail: [change, st.name].filter(Boolean).join(' · ') };
+  }, [sym, now]);
+}
+
+/** The alerts panel over the page's alert store (published `chart_alerts`; evaluated on the server). */
+function PageAlerts({ symbol }: { symbol: string }) {
+  const [store, setStore] = useState<AlertStore | undefined>();
+  const [, redraw] = useState(0);
+  useEffect(() => onPageAlertStore(setStore), []);
+  useEffect(() => store?.subscribe(() => redraw(n => n + 1)), [store]);
+  const rows = (store?.list() ?? [])
+    .filter(a => a.status === 'active' || a.status === 'triggered')
+    .map(a => ({
+      id: a.id, sym: a.sym, description: describeAlert(a), message: a.message, status: a.status as 'active' | 'triggered',
+      createdMs: a.createdMs, triggeredMs: a.triggeredMs, triggerValue: a.triggerValue,
+    }));
+  return (
+    <AlertsPanel
+      alerts={rows}
+      symbol={symbol}
+      sources={ALERT_SOURCES}
+      onCreate={
+        store
+          ? a => void store.put({ sym: a.sym, source: a.source, kind: a.source === 'Last' ? 'price' : 'study', op: a.op, level: a.level, message: a.message })
+          : undefined
+      }
+      onCancel={store ? id => void store.cancel(id) : undefined}
+    />
+  );
 }
 
 /** Group C's workspace: ChartToolbar + RawChart, all state in React. */
@@ -262,11 +353,12 @@ export function RawWorkspace({
   user: string;
   initial: ToolbarValue;
 }) {
-  const [value, setValue] = useState<ToolbarValue>({ watchlist: true, ...initial });
+  const [value, setValue] = useState<ToolbarValue>({ panel: 'watchlist', range: '4h', ...initial });
   const [hidden, setHidden] = useState<string[]>([]);
   const [lwc, setLwc] = useState<{ chart: IChartApi; series: ISeriesApi<SeriesType>[] } | null>(null);
   const quotes = useQuotes('quotes');
   const sym = value.symbol ?? symbols[0];
+  const status = useMarketStatus(sym);
   const keys = value.studies ?? [];
   // a color per study, kept when others are added or hidden; the chart gets one per column
   const colorOf = (k: string) => COLORS[STUDY_ORDER.indexOf(k) % COLORS.length];
@@ -293,11 +385,14 @@ export function RawWorkspace({
             user={user}
             scale={value.scale}
             onChart={setLwc}
+            viewWindow={RANGES[value.range ?? '4h'] ?? null}
+            barSeconds={BAR_SECONDS[value.resolution ?? '1m']}
           />
           <ChartLegend
             chart={lwc?.chart ?? null}
             series={lwc?.series ?? []}
             title={sym}
+            status={status}
             studies={legend}
             onStudyChange={p => {
               if (p.remove) setValue(v => ({ ...v, studies: (v.studies ?? []).filter(k => k !== p.id) }));
@@ -306,9 +401,14 @@ export function RawWorkspace({
           />
         </div>
       </div>
-      {value.watchlist && (
+      {value.panel === 'watchlist' && (
         <div style={{ width: 280, flex: 'none' }}>
           <Watchlist rows={quotes} selected={sym} onSelect={symbol => setValue(v => ({ ...v, symbol }))} />
+        </div>
+      )}
+      {value.panel === 'alerts' && (
+        <div style={{ width: 300, flex: 'none' }}>
+          <PageAlerts symbol={sym} />
         </div>
       )}
     </div>

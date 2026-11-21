@@ -8,9 +8,10 @@
  *
  *   ?prefix=tvl1s_            published chart fields are <prefix><SYM>   (default tvl1s_: 1-second candles)
  *   &n=16                     charts in the grid                         (default 16)
- *   &ext=sync,lines,sessions,draw  extensions to attach; ext= (empty) for none (default all four)
+ *   &ext=sync,lines,sessions,draw,alerts  extensions to attach; ext= (empty) for none (default all five)
  *   &user=alice               who annotations are saved as (default: a per-browser id)
  *   &annotations=chart_annotations   the published annotations table (default chart_annotations)
+ *   &alerts=chart_alerts             the published alerts table (default chart_alerts)
  *
  * Or one server object full-page, of any type a server plugin renders (front-end group B):
  *   ?widget=ws                              a deephaven.ui element (type deephaven.ui.Element, the default)
@@ -32,10 +33,17 @@ import {
   attachTvlExtensions,
   browserOwner,
   defaultExtensions,
+  providePageAlertStore,
   providePageAnnotationStore,
+  setPageSessions,
+  showAlertToasts,
+  subscribeRows,
+  tableAlertStore,
   tableAnnotationStore,
   type ExtensionName,
+  type SessionSpec,
 } from '@acme/chart-ext';
+import type { ToolbarValue } from '@acme/chart-react';
 import { RawChart, RawWorkspace } from './RawChart';
 
 const TVL_TYPE = 'deephaven.plot.tradingview_lightweight.TvlChart';
@@ -50,7 +58,8 @@ const WIDGET_TYPE = q.get('type') ?? 'deephaven.ui.Element';
 /** who this page writes annotations as (Community has no user identity): ?user=, else a per-browser id */
 const USER = q.get('user') ?? browserOwner();
 const ANNOTATIONS = q.get('annotations') ?? 'chart_annotations';
-const EXT = (q.get('ext') ?? 'sync,lines,sessions,draw').split(',').filter(Boolean) as ExtensionName[];
+const ALERTS = q.get('alerts') ?? 'chart_alerts';
+const EXT = (q.get('ext') ?? 'sync,lines,sessions,draw,alerts').split(',').filter(Boolean) as ExtensionName[];
 
 /**
  * Provide the page's annotation store from the published annotations table, if the server has one:
@@ -79,6 +88,54 @@ function usePageAnnotations() {
     return () => {
       closed = true;
       release();
+    };
+  }, [dh, connection]);
+  usePageAlertsAndSessions();
+}
+
+/**
+ * The page's alert store (alert lines, context-menu alerts, a toast when one of USER's alerts fires)
+ * from the published alerts table, and the session calendar from the published `sessions` table.
+ */
+export function usePageAlertsAndSessions() {
+  const dh = useApi();
+  const connection = useConnection();
+  useEffect(() => {
+    let closed = false;
+    const releases: Array<() => void> = [];
+    const open = (name: string, use: (t: Dh.Table) => () => void) =>
+      connection
+        .getObject({ type: dh.VariableType.TABLE, name } as never)
+        .then(obj => {
+          const t = obj as Dh.Table;
+          if (closed) return t.close();
+          const stop = use(t);
+          releases.push(() => {
+            stop();
+            t.close();
+          });
+        })
+        .catch(() => {}); // not published on this server
+    void open(ALERTS, t => {
+      const store = tableAlertStore(dh, t, USER);
+      const unprovide = providePageAlertStore(store);
+      const stopToasts = showAlertToasts(store);
+      return () => {
+        stopToasts();
+        unprovide();
+        store.close();
+      };
+    });
+    void open('sessions', t =>
+      subscribeRows(dh, t, ['Sym', 'Spec'], rows => {
+        const map: Record<string, SessionSpec> = {};
+        for (const r of rows) map[String(r.Sym)] = JSON.parse(String(r.Spec));
+        setPageSessions(map);
+      }),
+    );
+    return () => {
+      closed = true;
+      releases.forEach(r => r());
     };
   }, [dh, connection]);
 }
@@ -134,11 +191,17 @@ export default function App() {
   }
   if (q.has('workspace')) {
     // group C with the toolbar: our own charts from the published bars_<res> tables
-    const initial = { symbol: q.get('sym') ?? 'ES', resolution: '1m', studies: ['EMA_20'], scale: 'normal' };
-    return <RawWorkspace symbols={SYMS} annotations={ANNOTATIONS} user={USER} initial={initial} />;
+    const initial = { symbol: q.get('sym') ?? 'ES', resolution: '1m', range: '4h', studies: ['EMA_20'], scale: 'normal' };
+    return <RawWorkspacePage initial={initial} />;
   }
   if (WIDGET) return <SingleWidget name={WIDGET} type={WIDGET_TYPE} />;
   return <Grid />;
+}
+
+/** Group C's workspace, with the page's alert store and session calendar from the published tables. */
+function RawWorkspacePage({ initial }: { initial: ToolbarValue }) {
+  usePageAlertsAndSessions();
+  return <RawWorkspace symbols={SYMS} annotations={ANNOTATIONS} user={USER} initial={initial} />;
 }
 
 function Grid() {

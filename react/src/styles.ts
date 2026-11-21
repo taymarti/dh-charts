@@ -109,6 +109,26 @@ const CSS = `
 .acme-wl-flash-up { animation: acme-wl-up .6s ease-out; border-radius: 2px; }
 .acme-wl-flash-down { animation: acme-wl-down .6s ease-out; border-radius: 2px; }
 
+/* legend: market status */
+.acme-lg-status { pointer-events: auto; display: inline-flex; align-items: center; padding: 4px; cursor: default; }
+.acme-lg-dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
+
+/* alerts (AlertsPanel) */
+.acme-al-form { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-bottom: 1px solid var(--acme-tb-border); flex: none; }
+.acme-al-form .acme-tb-search { margin: 0; width: 100%; height: 30px; }
+.acme-al-form select.acme-tb-search { padding: 0 6px; }
+.acme-al-row { display: flex; gap: 6px; }
+.acme-al-sym { display: flex; align-items: center; gap: 6px; font-weight: 600; }
+.acme-al-sym svg { width: 16px; height: 16px; fill: none; stroke: #ff9800; stroke-width: 1.5; }
+.acme-al-form .acme-lg-ok { justify-content: center; background: var(--acme-tb-accent); color: #fff; }
+.acme-al-form .acme-lg-ok:disabled { opacity: .5; cursor: default; }
+.acme-al-item { display: flex; align-items: flex-start; gap: 8px; padding: 7px 12px; border-left: 2px solid #ff9800; margin: 2px 0; }
+.acme-al-item.fired { border-left-color: var(--acme-tb-muted); }
+.acme-al-item > div { flex: 1; min-width: 0; }
+.acme-al-sub { color: var(--acme-tb-muted); font-size: 12px; margin-top: 2px; }
+.acme-al-item button { width: 20px; height: 20px; padding: 0; border: none; border-radius: 3px; background: transparent; color: var(--acme-tb-muted); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
+.acme-al-item button:hover { background: var(--acme-tb-hover); color: var(--acme-tb-fg); }
+
 /* a chart pane in a multi-chart layout (ChartFrame) */
 .acme-frame { position: relative; flex: 1 1 0; min-width: 0; min-height: 0; display: flex; flex-direction: column; box-sizing: border-box; border: 1px solid transparent; }
 .acme-frame.multi { border-color: #2a2e39; }

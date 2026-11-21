@@ -38,6 +38,7 @@ def price_chart(
     since=None,
     on_press=None,
     colors: Optional[Sequence[Optional[str]]] = None,
+    compare: Sequence[tuple[str, Table, str]] = (),
 ) -> tvl.TvlChart:
     """A price chart from a bars table (L0 `bars`, one symbol), with studies on overlays and panes.
 
@@ -47,9 +48,18 @@ def price_chart(
     since (an Instant) limits the chart to a range; studies are computed on the full table first, so
     they are warmed up at the range start. `scale` applies to the price pane only.
 
-    colors: one color per study (None: the next house color); a study's lines share its color."""
+    colors: one color per study (None: the next house color); a study's lines share its color.
+
+    compare: (title, bars table, color) per symbol to overlay as a line of its closes. Comparing
+    only makes sense in percent, so the price scale switches to percent unless log was asked for.
+    `since` (an Instant or a data.Lookback) applies to them too."""
+    if compare and scale == "normal":
+        scale = "percent"
     t = in_range(with_studies(bars_t, studies, by=None), since)
     series = [_price_series(t, chart_type, title, auto_bin, scale)]
+    for ctitle, ct, ccolor in compare:
+        series.append(tvl.line(in_range(ct, since), timestamp="Timestamp", value="Close", title=ctitle, color=ccolor,
+                               line_width=2, last_value_visible=True))
 
     panes: list[str] = []
     color_i = 0

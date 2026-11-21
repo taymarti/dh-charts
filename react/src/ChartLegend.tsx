@@ -28,6 +28,16 @@ export interface LegendStudy {
   /** key into `studyTypes`, for the settings dialog */
   type?: string;
   params?: Record<string, number>;
+  /** "compare": a compared symbol (a line of its closes), shown with its value and no settings */
+  kind?: 'study' | 'compare';
+}
+
+/** The market's state, shown as a dot by the symbol (from a session calendar). */
+export interface LegendStatus {
+  state: 'regular' | 'extended' | 'closed';
+  label: string;
+  /** tooltip detail, e.g. "closes in 2h 05m · CME Globex" */
+  detail?: string;
 }
 
 /** Editable parameters per study type, with defaults: { EMA: { label, params: { length: 20 } } }. */
@@ -52,7 +62,10 @@ export interface ChartLegendProps {
   onStudyChange?: (patch: StudyPatch) => void;
   /** left offset in px (default 44: to the right of the drawing palette) */
   left?: number;
+  status?: LegendStatus;
 }
+
+const STATUS_COLOR = { regular: '#26a69a', extended: '#ff9800', closed: '#787b86' };
 
 export const STUDY_PALETTE = [
   '#f7a600', '#ab47bc', '#00bcd4', '#8bc34a', '#ff7043', '#90a4ae', '#2962ff', '#e91e63', '#ffeb3b', '#ffffff',
@@ -86,7 +99,7 @@ function prevOf(s: ISeriesApi<SeriesType>, bar: Bar): Bar | undefined {
   return undefined;
 }
 
-export function ChartLegend({ chart, series, title, studies = [], studyTypes, onStudyChange, left = 44 }: ChartLegendProps) {
+export function ChartLegend({ chart, series, title, studies = [], studyTypes, onStudyChange, left = 44, status }: ChartLegendProps) {
   injectToolbarStyles();
   const [hover, setHover] = useState<MouseEventParams<Time> | null>(null);
   const [, redraw] = useReducer((n: number) => n + 1, 0);
@@ -153,6 +166,11 @@ export function ChartLegend({ chart, series, title, studies = [], studyTypes, on
     <div className="acme-lg" style={{ left }}>
       <div className="acme-lg-row">
         <span className="acme-lg-title">{title}</span>
+        {status && (
+          <span className="acme-lg-status" title={status.detail ? `${status.label} · ${status.detail}` : status.label}>
+            <span className="acme-lg-dot" style={{ background: STATUS_COLOR[status.state] }} />
+          </span>
+        )}
         {bar?.open != null ? [ohlc('O', bar.open), ohlc('H', bar.high), ohlc('L', bar.low), ohlc('C', bar.close)] : ohlc('', close)}
         {chg != null && prevClose ? (
           <span style={{ color }}>
@@ -167,7 +185,9 @@ export function ChartLegend({ chart, series, title, studies = [], studyTypes, on
         const values = visible ? st.columns.map(c => byTitle.get(c)).map(s => (s ? f(valueOf(s)?.value, precision(s)) : '—')) : [];
         return (
           <div key={st.id} className={`acme-lg-row acme-lg-study${visible ? '' : ' hidden'}`}>
-            <span className="acme-lg-label">{st.label}</span>
+            <span className="acme-lg-label" style={st.kind === 'compare' ? { color: st.color } : undefined}>
+              {st.label}
+            </span>
             {values.map((v, i) => (
               <span key={i} style={{ color: st.color ?? '#d1d4dc' }}>
                 {v}
@@ -178,7 +198,7 @@ export function ChartLegend({ chart, series, title, studies = [], studyTypes, on
                 <button title={visible ? 'Hide' : 'Show'} onClick={() => onStudyChange({ id: st.id, visible: !visible })}>
                   {visible ? icons.eye : icons.eyeOff}
                 </button>
-                {studyTypes && st.type && studyTypes[st.type] && (
+                {studyTypes && st.kind !== 'compare' && st.type && studyTypes[st.type] && (
                   <button title="Settings" onClick={() => setEditing(st)}>
                     {icons.gear}
                   </button>

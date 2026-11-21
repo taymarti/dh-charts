@@ -256,16 +256,111 @@ def for_symbol(t: Table, sym: str, *, by: str = "Sym") -> Table:
     return t.where(f"{by} = `{sym}`").drop_columns(by)
 
 
-def in_range(t: Table, since=None) -> Table:
-    """Rows from `since` (an Instant; None = all).
+def in_range(t: Table, since=None, *, time_col: str = "Timestamp") -> Table:
+    """Rows from `since`: an Instant, a Lookback (which can move later), or None (all).
 
     Apply AFTER with_studies: studies need the history before the range to warm up (an EMA or RSI
     computed on the visible window alone starts cold)."""
     if since is None:
         return t
+    if isinstance(since, Lookback):
+        return since.apply(t, time_col=time_col)
     from deephaven.time import to_j_instant
 
-    return t.where(f"Timestamp >= '{to_j_instant(since)}'")  # an Instant literal
+    return t.where(f"{time_col} >= '{to_j_instant(since)}'")  # an Instant literal
+
+
+class Lookback:
+    """A movable start time for a chart's table: how much history it holds.
+
+    `apply(t)` filters `t` to rows from the start; `set(since)` moves it, and the filtered table gains
+    (or drops) rows in place. The chart object built on it stays the same, so a client that is scrolled
+    into the past keeps its view while older bars arrive: paging history without rebuilding the chart.
+    It is a one-row input table joined into the table, so moving it costs one re-filter on the server."""
+
+    def __init__(self, since=None):
+        from deephaven import dtypes as dht
+        from deephaven.table_factory import input_table
+
+        self.table = input_table({"K": dht.int32, "Since": dht.Instant}, key_cols="K")
+        self.since = None
+        self.set(since)
+
+    def set(self, since) -> None:
+        """Move the start (an Instant; None: everything)."""
+        from deephaven import new_table
+        from deephaven.column import datetime_col, int_col
+
+        self.since = since
+        self.table.add(new_table([int_col("K", [0]), datetime_col("Since", [since])]))
+
+    def apply(self, t: Table, *, time_col: str = "Timestamp") -> Table:
+        return (
+            t.natural_join(self.table, on=[], joins="LookbackSince=Since")
+            .where(f"isNull(LookbackSince) || {time_col} >= LookbackSince")
+            .drop_columns("LookbackSince")
+        )
+
+
+# ----------------------------------------------------------------------------- spreads and ratios
+
+_TOKEN = re.compile(r"\s*(?:(\d+[A-Za-z][A-Za-z0-9_.]*)|(\d+(?:\.\d+)?)|([A-Za-z_][A-Za-z0-9_.]*)|([-+*/()]))")
+
+
+def is_expression(sym: str) -> bool:
+    """'ES-NQ', 'ZN/ZB', '2*ZN-ZB': a synthetic instrument rather than a symbol."""
+    return any(c in sym for c in "+-*/()")
+
+
+def parse_expression(expr: str, symbols) -> tuple[list[str], str]:
+    """The legs of an expression and a Deephaven formula over leg columns L0, L1, ...
+
+    Raises ValueError for anything but symbols, numbers, + - * / and parentheses."""
+    known = set(symbols)
+    legs: list[str] = []
+    out: list[str] = []
+    pos = 0
+    expr = expr.strip()
+    while pos < len(expr):
+        m = _TOKEN.match(expr, pos)
+        if not m or m.end() == pos:
+            raise ValueError(f"cannot read {expr[pos:]!r} in {expr!r}")
+        sym_digit, num, sym, op = m.groups()
+        name = sym_digit or sym
+        if name:
+            if name not in known:
+                raise ValueError(f"unknown symbol {name!r} in {expr!r}")
+            if name not in legs:
+                legs.append(name)
+            out.append(f"L{legs.index(name)}")
+        elif num:
+            out.append(f"{float(num)!r}")
+        else:
+            out.append(op)
+        pos = m.end()
+    if not legs:
+        raise ValueError(f"no symbol in {expr!r}")
+    return legs, " ".join(out)
+
+
+def spread_ticks(ticks: Table, expr: str, symbols, *, by: str = "Sym", time_col: str = "Timestamp",
+                 price_col: str = "Price") -> Table:
+    """Ticks of a spread or ratio ('ES-NQ', 'ZN/ZB', '2*ZN-ZB'): every tick of any leg is a tick of
+    the expression, priced with each leg's latest price (so legs are synchronized to the tick, not to
+    bar closes). Columns: Timestamp, Sym (= the expression), Price. Ticks must be in time order."""
+    from deephaven.updateby import forward_fill
+
+    legs, formula = parse_expression(expr, symbols)
+    lit = ", ".join(f"`{s}`" for s in legs)
+    leg_cols = [f"L{i}" for i in range(len(legs))]
+    return (
+        ticks.where(f"{by} in {lit}")
+        .update_view([f"L{i} = {by} == `{s}` ? {price_col} : NULL_DOUBLE" for i, s in enumerate(legs)])
+        .update_by(forward_fill(leg_cols))
+        .where([f"!isNull({c})" for c in leg_cols])
+        .update_view([f"Price = (double) ({formula})", f"{by} = `{expr}`"])
+        .view([time_col, by, "Price"])
+    )
 
 
 # ----------------------------------------------------------------------------- study types (for UIs)

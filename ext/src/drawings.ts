@@ -14,6 +14,9 @@
  *   right-click          context menu: reset view, horizontal line / copy price at the pointer,
  *                        delete or share the drawing under it, undo, remove all my drawings
  *   Alt+H  horizontal line at the pointer   Alt+T  trend line tool   Alt+R  reset view   Ctrl+Z  undo
+ *   Alt+A  alert at the pointer's price (with the page's alert store); the menu also sets an alert on
+ *          a drawing (a trend line's alert follows the line), and removes alerts. A drawing with an
+ *          active alert shows a bell; moving it moves the alert, deleting it cancels the alert.
  * Shortcuts go to the chart the pointer was last over. Undo covers this chart's own drawing changes
  * (add, move, delete, share) since it was bound.
  * Points snap to the bar's open/high/low/close within a few pixels (a "weak magnet").
@@ -36,6 +39,7 @@ import {
   type UTCTimestamp,
 } from 'lightweight-charts';
 import { newAnnotationId, onPageAnnotationStore, type Annotation, type AnnotationStore } from './annotations';
+import { ALERT_COLOR, currentAlertStore, onPageAlertStore, type AlertInput, type AlertStore } from './alerts';
 import { titleChartKey } from './persistent-price-lines';
 import type { TvlChartContext, TvlExtension } from './hook';
 
@@ -97,6 +101,8 @@ class DrawingsPrimitive implements ISeriesPrimitive<Time> {
   selected: string | null = null;
   preview: Drawing | null = null; // being placed
   owner = '';
+  /** drawings with an active alert */
+  alerted = new Set<string>();
   private chart?: IChartApi;
   private series?: ISeriesApi<SeriesType>;
   private request?: () => void;
@@ -158,6 +164,14 @@ class DrawingsPrimitive implements ISeriesPrimitive<Time> {
               c.fillStyle = color;
               c.font = '11px -apple-system, "Trebuchet MS", Roboto, sans-serif';
               c.fillText(d.owner, g.points[0].x + 4, g.points[0].y - 4);
+            }
+            if (this.alerted.has(d.id)) {
+              // a bell at the line's right end (horizontal lines run to the edge: keep it inside)
+              const p = g.points[g.points.length - 1];
+              const bx = d.type === 'trend' ? p.x + 6 : mediaSize.width - 90;
+              c.fillStyle = ALERT_COLOR;
+              c.font = '12px -apple-system, "Segoe UI Emoji", "Trebuchet MS", sans-serif';
+              c.fillText('🔔', bx, p.y - 5);
             }
             if (sel) {
               c.fillStyle = '#131722';
@@ -315,6 +329,30 @@ export function bindDrawings(
   };
   const unsubscribe = store.subscribe(sync);
   sync();
+
+  // alerts on drawings (when the page has an alert store)
+  const alerts = () => currentAlertStore();
+  const markAlerted = () => {
+    prim.alerted = new Set((alerts()?.active(chartKey) ?? []).map(a => a.drawingId).filter((x): x is string => !!x));
+    prim.update();
+  };
+  let unsubAlerts = () => {};
+  const unsubAlertStore = onPageAlertStore((s: AlertStore | undefined) => {
+    unsubAlerts();
+    unsubAlerts = s ? s.subscribe(markAlerted) : () => {};
+    markAlerted();
+  });
+  const alertOf = (d: Drawing) => alerts()?.active(chartKey).find(a => a.drawingId === d.id);
+  const alertSpec = (d: Drawing): AlertInput =>
+    d.type === 'trend'
+      ? { sym: chartKey, kind: 'line', line: { t0: d.points[0].time, p0: d.points[0].price, t1: d.points[1].time, p1: d.points[1].price }, drawingId: d.id }
+      : { sym: chartKey, kind: 'price', level: d.points[0].price, drawingId: d.id };
+  /** keep a drawing's alert on the drawing after it moves */
+  const followAlert = (d: Drawing) => {
+    const a = alertOf(d);
+    if (a) void alerts()?.put({ ...alertSpec(d), id: a.id, op: a.op, message: a.message });
+  };
+  const addPriceAlert = (price: number) => void alerts()?.put({ sym: chartKey, kind: 'price', level: price });
 
   const save = (d: Drawing) =>
     void store.put({ chartKey, id: d.id, kind: KIND, spec: { type: d.type, points: d.points }, shared: d.shared });
@@ -478,6 +516,7 @@ export function bindDrawings(
     if (!moved) return;
     record([{ id: d.id, before: { ...snapshot(d), points: orig } }]);
     save(d);
+    followAlert(d);
   };
 
   function toggleShare(d: Drawing) {
@@ -491,7 +530,11 @@ export function bindDrawings(
     prim.drawings = prim.drawings.filter(z => !gone.has(z.id));
     if (prim.selected && gone.has(prim.selected)) prim.selected = null;
     prim.update();
-    for (const d of ds) void store.remove(chartKey, d.id);
+    for (const d of ds) {
+      void store.remove(chartKey, d.id);
+      const a = alertOf(d);
+      if (a) void alerts()?.cancel(a.id);
+    }
   };
   const addHorizontal = (y: number) => {
     const price = series.coordinateToPrice(y);
@@ -522,16 +565,31 @@ export function bindDrawings(
     const h = hit(x, y, width);
     const mineAll = prim.drawings.filter(d => d.owner === store.owner);
     const items: Array<MenuItem | '-'> = [{ label: 'Reset chart view', hint: 'Alt+R', run: resetView }, '-'];
+    const as = alerts();
     if (price != null) {
+      if (as) items.push({ label: `Add alert at ${fmt(price)}`, hint: 'Alt+A', run: () => addPriceAlert(price) });
       items.push(
         { label: `Add horizontal line at ${fmt(price)}`, hint: 'Alt+H', run: () => addHorizontal(y) },
         { label: `Copy price ${fmt(price)}`, run: () => void navigator.clipboard?.writeText(fmt(price)) },
       );
     }
+    // an alert line under the pointer
+    const nearAlert = as
+      ?.active(chartKey)
+      .find(a => a.kind === 'price' && !a.drawingId && a.level != null && Math.abs((series.priceToCoordinate(a.level) ?? -1e9) - y) <= HIT_PX);
+    if (nearAlert && as) items.push({ label: `Remove alert at ${fmt(nearAlert.level as number)}`, run: () => void as.cancel(nearAlert.id) });
     if (h) {
       const mine = h.d.owner === store.owner;
       items.push('-');
       if (mine) {
+        const a = alertOf(h.d);
+        if (as) {
+          items.push(
+            a
+              ? { label: 'Remove alert on this line', run: () => void as.cancel(a.id) }
+              : { label: 'Add alert on this line', run: () => void as.put(alertSpec(h.d)) },
+          );
+        }
         items.push(
           { label: 'Delete drawing', hint: 'Del', run: () => removeDrawings([h.d]) },
           { label: h.d.shared ? 'Stop sharing drawing' : 'Share drawing', hint: 'Ctrl+click', run: () => toggleShare(h.d) },
@@ -557,9 +615,13 @@ export function bindDrawings(
     if (target && (/^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName) || target.isContentEditable)) return;
     if (shortcutTarget === me) {
       const k = ev.code;
-      if (ev.altKey && !ev.ctrlKey && !ev.metaKey && (k === 'KeyH' || k === 'KeyT' || k === 'KeyR')) {
+      if (ev.altKey && !ev.ctrlKey && !ev.metaKey && (k === 'KeyH' || k === 'KeyT' || k === 'KeyR' || k === 'KeyA')) {
         ev.preventDefault();
         if (k === 'KeyH' && pointer) addHorizontal(pointer.y);
+        if (k === 'KeyA' && pointer) {
+          const p = series.coordinateToPrice(pointer.y);
+          if (p != null) addPriceAlert(p as number);
+        }
         if (k === 'KeyT') setTool(tool === 'trend' ? null : 'trend');
         if (k === 'KeyR') resetView();
         return;
@@ -624,6 +686,8 @@ export function bindDrawings(
 
   return () => {
     unsubscribe();
+    unsubAlertStore();
+    unsubAlerts();
     pane.removeEventListener('mousedown', onDown, true);
     pane.removeEventListener('mousemove', onMove, true);
     pane.removeEventListener('contextmenu', onContextMenu, true);

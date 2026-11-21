@@ -54,7 +54,12 @@ _autosaves: list = []
 
 def annotation_table(path: Optional[str | pathlib.Path] = None) -> InputTable:
     """A keyed input table of chart annotations; with `path`, loaded from and saved to a parquet file."""
-    t = input_table(col_defs=COLUMNS, key_cols=KEYS)
+    return persistent_input_table(COLUMNS, KEYS, path)
+
+
+def persistent_input_table(columns: dict, keys: list, path: Optional[str | pathlib.Path] = None) -> InputTable:
+    """A keyed input table; with `path`, loaded from a parquet snapshot and written back on every change."""
+    t = input_table(col_defs=columns, key_cols=keys)
     if path is None:
         return t
     from deephaven import parquet
@@ -63,7 +68,7 @@ def annotation_table(path: Optional[str | pathlib.Path] = None) -> InputTable:
     p = pathlib.Path(path).resolve()
     uri = p.as_uri()  # parquet on Windows needs file:/// URIs
     if p.exists():
-        t.add(parquet.read(uri).view(list(COLUMNS)))
+        t.add(parquet.read(uri).view(list(columns)))
 
     def save(update, is_replay):  # runs in the update cycle, holding the lock: snapshot is consistent
         p.parent.mkdir(parents=True, exist_ok=True)
