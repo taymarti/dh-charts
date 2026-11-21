@@ -63,7 +63,7 @@ Findings from building it:
 
 | Path | What it is |
 |---|---|
-| `ext/` | **`@acme/chart-ext`**: our features as LWC plugins, plus the hook that applies them to Deephaven's charts. Shipped as source; each host bundles it |
+| `ext/` | **`@acme/chart-ext`**: our features as LWC plugins, the hook that applies them to Deephaven's charts, and the annotation store. In-repo hosts compile its source (a Vite alias); `npm pack` builds the distributable package (`dist/`), published as a tarball in [lwc-vendor](https://github.com/taymarti/lwc-vendor) `acme/` |
 | `web/` | **React host** (pattern A): Deephaven's own chart component in a standalone React app, through `WidgetView`. The plugin's JS comes from the server, so there is nothing to vendor and no npm package |
 | `dh-plugin/` | **`dh-chart-ext`**: a Python package that registers a JS plugin with the Deephaven server and brings `@acme/chart-ext` to every Deephaven web UI, deephaven.ui dashboards included |
 | (fork) | Our changes to Deephaven's plugin live in [taymarti/deephaven-plugins](https://github.com/taymarti/deephaven-plugins/tree/acme/tradingview-lightweight), branch `acme/tradingview-lightweight` (see "The fork" below) |

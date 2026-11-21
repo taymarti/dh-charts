@@ -4,20 +4,41 @@
   "version": "0.1.0",
   "description": "Chart features as Lightweight Charts plugins, and the hook that applies them to Deephaven TradingView charts",
   "type": "module",
-  "main": "src/index.ts",
-  "types": "src/index.ts",
+  "main": "dist/index.js",
+  "module": "dist/index.js",
+  "types": "dist/types/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/types/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "sideEffects": false,
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "build": "vite build && tsc -p tsconfig.build.json",
+    "prepack": "npm run build"
   },
   "dependencies": {
     "@tradingview/lwc-plugin-user-price-lines": "1.0.0"
   },
-  "devDependencies": {
-    "typescript": "~5.7.2",
+  "peerDependencies": {
     "lightweight-charts": "5.2.0",
     "@deephaven/jsapi-types": "~41.11.0"
   },
-  "peerDependencies": {
-    "lightweight-charts": "5.2.0"
+  "devDependencies": {
+    "typescript": "~5.7.2",
+    "lightweight-charts": "5.2.0",
+    "@deephaven/jsapi-types": "~41.11.0",
+    "vite": "^6.0.7"
+  },
+  "peerDependenciesMeta": {
+    "@deephaven/jsapi-types": {
+      "optional": true
+    }
   }
 }

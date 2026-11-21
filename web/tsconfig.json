@@ -19,6 +19,9 @@
     "paths": {
       "lightweight-charts": [
         "./node_modules/lightweight-charts"
+      ],
+      "@acme/chart-ext": [
+        "../ext/src/index.ts"
       ]
     }
   },

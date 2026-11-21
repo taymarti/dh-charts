@@ -24,6 +24,8 @@ export default defineConfig(({ mode }) => {
       // one copy of lightweight-charts: the app's (@acme/chart-ext lists it as a peer dependency)
       dedupe: ['react', 'react-dom', 'react-redux', 'redux', 'lightweight-charts'],
       alias: [
+        // @acme/chart-ext from source (its npm distribution is the built dist/; see ext/package.json)
+        { find: '@acme/chart-ext', replacement: fileURLToPath(new URL('../ext/src/index.ts', import.meta.url)) },
         // CJS/ESM default-export interop fix; see the shim for details.
         {
           find: /^@paciolan\/remote-module-loader$/,
