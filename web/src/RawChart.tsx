@@ -6,6 +6,9 @@
  *
  *   ?raw=bars_1m&sym=ES&studies=EMA_20,BB_20_2_Upper,BB_20_2_Lower
  *
+ * Price lines persist through the same annotations table as the other front ends (bindPriceLines on
+ * our own series, chart key = the symbol), so a line drawn here shows on every ES chart and vice versa.
+ *
  * Bars arrive as Barrage deltas: a new bar is an added row, the forming bar a modified row; both go
  * through series.update(), which LWC handles incrementally for the last bar.
  */
@@ -22,14 +25,26 @@ import {
   type ISeriesApi,
   type UTCTimestamp,
 } from 'lightweight-charts';
-import { TimeRangeShading, alternatingBlocks } from '@acme/chart-ext';
+import { TimeRangeShading, alternatingBlocks, bindPriceLines, tableAnnotationStore } from '@acme/chart-ext';
 
 const COLORS = ['#f7a600', '#ab47bc', '#00bcd4', '#8bc34a'];
 
 const num = (x: unknown) =>
   x != null && typeof x === 'object' && 'asNumber' in (x as object) ? (x as { asNumber(): number }).asNumber() : (x as number);
 
-export function RawChart({ table: name, sym, studies }: { table: string; sym: string; studies: string[] }) {
+export function RawChart({
+  table: name,
+  sym,
+  studies,
+  annotations,
+  user,
+}: {
+  table: string;
+  sym: string;
+  studies: string[];
+  annotations: string;
+  user: string;
+}) {
   const dh = useApi();
   const connection = useConnection();
   const el = useRef<HTMLDivElement>(null);
@@ -53,6 +68,22 @@ export function RawChart({ table: name, sym, studies }: { table: string; sym: st
 
     let closed = false;
     let cleanup = () => {};
+    let unbindLines = () => {};
+    // persistent price lines, if the server publishes the annotations table
+    connection
+      .getObject({ type: dh.VariableType.TABLE, name: annotations } as never)
+      .then(obj => {
+        const at = obj as Dh.Table;
+        if (closed) return at.close();
+        const store = tableAnnotationStore(dh, at, user);
+        const unbind = bindPriceLines(chart, candles, store, sym);
+        unbindLines = () => {
+          unbind();
+          store.close();
+          at.close();
+        };
+      })
+      .catch(() => {});
     (async () => {
       const t = (await connection.getObject({ type: dh.VariableType.TABLE, name } as never)) as Dh.Table;
       if (closed) return t.close();
@@ -91,9 +122,10 @@ export function RawChart({ table: name, sym, studies }: { table: string; sym: st
     return () => {
       closed = true;
       cleanup();
+      unbindLines(); // before chart.remove(): it detaches from the series
       chart.remove();
     };
-  }, [dh, connection, name, sym, studies.join(',')]);
+  }, [dh, connection, name, sym, studies.join(','), annotations, user]);
 
   return <div ref={el} className="single" />;
 }

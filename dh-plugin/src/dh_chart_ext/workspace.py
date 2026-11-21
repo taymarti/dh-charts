@@ -21,6 +21,7 @@ from deephaven.time import dh_now
 
 from .charts import price_chart, tick_chart
 from .data import STANDARD_RESOLUTIONS, STUDIES, bars, for_symbol, in_range, standard_set
+from .store import annotations_element
 
 RANGES = {"5m": 300, "15m": 900, "30m": 1800, "1h": 3600, "4h": 14400, "All": None}
 CHART_TYPES = {"candle": "Candles", "bar": "Bars", "line": "Line", "area": "Area"}
@@ -68,8 +69,14 @@ def chart_workspace(
     chart_type: str = "candle",
     studies: Sequence[str] = ("Volume",),
     scale: str = "normal",
+    annotations: Optional[Table] = None,
+    user: Optional[str] = None,
 ):
-    """Toolbar + chart. The arguments are the initial selections."""
+    """Toolbar + chart. The arguments are the initial selections.
+
+    annotations: the app's annotation table (store.annotation_table); with it, price lines and later
+    drawings persist per symbol, per `user` (None: a per-browser id), and survive toolbar changes.
+    The chart key is the symbol (the price series' title), so a line drawn on ES shows on every ES chart."""
     symbols = [str(s) for s in ui.use_column_data(source.symbols_table)] if source.symbols_table is not None else []
     sym, set_sym = ui.use_state(symbol)
     res, set_res = ui.use_state(resolution)
@@ -118,5 +125,7 @@ def chart_workspace(
         # a toolbar keeps its natural height: no growing, and wrapped rows packed at the top
         gap="size-150", wrap=True, align_items="center", align_content="start", flex_grow=0, flex_shrink=0,
     )
-    return ui.flex(toolbar, ui.view(chart, flex_grow=1, min_height="size-3000"), direction="column", gap="size-100",
-                   flex_grow=1, height="100%")
+    parts = [toolbar, ui.view(chart, flex_grow=1, min_height="size-3000")]
+    if annotations is not None:
+        parts.append(annotations_element(annotations, user))  # draws nothing; feeds the chart extensions
+    return ui.flex(*parts, direction="column", gap="size-100", flex_grow=1, height="100%")

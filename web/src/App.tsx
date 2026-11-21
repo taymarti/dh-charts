@@ -9,6 +9,8 @@
  *   ?prefix=tvl1s_            published chart fields are <prefix><SYM>   (default tvl1s_: 1-second candles)
  *   &n=16                     charts in the grid                         (default 16)
  *   &ext=sync,lines,sessions  extensions to attach; ext= (empty) for none (default all three)
+ *   &user=alice               who annotations are saved as (default: a per-browser id)
+ *   &annotations=chart_annotations   the published annotations table (default chart_annotations)
  *
  * Or one server object full-page, of any type a server plugin renders (front-end group B):
  *   ?widget=ws                              a deephaven.ui element (type deephaven.ui.Element, the default)
@@ -17,13 +19,22 @@
  * Or a chart from table data only, our own LWC chart (front-end group C; see RawChart.tsx):
  *   ?raw=bars_1m&sym=ES&studies=EMA_20,BB_20_2_Upper,BB_20_2_Lower
  */
-import { useLayoutEffect, useMemo, useRef } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { useConnection } from '@deephaven/app-utils';
+import { useApi } from '@deephaven/jsapi-bootstrap';
+import type { dh as Dh } from '@deephaven/jsapi-types';
 import { WidgetView, isWidgetPlugin, usePlugins } from '@deephaven/plugin';
 // deephaven.ui elements need a FiberProvider above them (Deephaven's own Dashboard adds one); @deephaven/dashboard
 // does not export it from its index, so import its module directly
 import { FiberProvider } from '@deephaven/dashboard/dist/useFiber.js';
-import { attachTvlExtensions, defaultExtensions, type ExtensionName } from '@acme/chart-ext';
+import {
+  attachTvlExtensions,
+  browserOwner,
+  defaultExtensions,
+  providePageAnnotationStore,
+  tableAnnotationStore,
+  type ExtensionName,
+} from '@acme/chart-ext';
 import { RawChart } from './RawChart';
 
 const TVL_TYPE = 'deephaven.plot.tradingview_lightweight.TvlChart';
@@ -35,7 +46,41 @@ const N = Number(q.get('n') ?? 16);
 const WIDGET = q.get('widget');
 const RAW = q.get('raw');
 const WIDGET_TYPE = q.get('type') ?? 'deephaven.ui.Element';
+/** who this page writes annotations as (Community has no user identity): ?user=, else a per-browser id */
+const USER = q.get('user') ?? browserOwner();
+const ANNOTATIONS = q.get('annotations') ?? 'chart_annotations';
 const EXT = (q.get('ext') ?? 'sync,lines,sessions').split(',').filter(Boolean) as ExtensionName[];
+
+/**
+ * Provide the page's annotation store from the published annotations table, if the server has one:
+ * persistent price lines (and later drawings) on every chart the page's extensions reach.
+ */
+function usePageAnnotations() {
+  const dh = useApi();
+  const connection = useConnection();
+  useEffect(() => {
+    let closed = false;
+    let release = () => {};
+    connection
+      .getObject({ type: dh.VariableType.TABLE, name: ANNOTATIONS } as never)
+      .then(obj => {
+        const t = obj as Dh.Table;
+        if (closed) return t.close();
+        const store = tableAnnotationStore(dh, t, USER);
+        const unprovide = providePageAnnotationStore(store);
+        release = () => {
+          unprovide();
+          store.close();
+          t.close();
+        };
+      })
+      .catch(() => {}); // no annotations table on this server: lines stay unsaved
+    return () => {
+      closed = true;
+      release();
+    };
+  }, [dh, connection]);
+}
 
 function Chart({ name }: { name: string }) {
   const connection = useConnection();
@@ -71,6 +116,7 @@ function SingleWidget({ name, type }: { name: string; type: string }) {
   const fetch = useMemo(() => () => connection.getObject({ type, name } as never), [connection, name, type]);
   const root = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => attachTvlExtensions(root.current!, defaultExtensions(EXT)), []);
+  usePageAnnotations();
   return (
     <div ref={root} className="single">
       <FiberProvider>
@@ -81,12 +127,20 @@ function SingleWidget({ name, type }: { name: string; type: string }) {
 }
 
 export default function App() {
-  if (RAW) return <RawChart table={RAW} sym={q.get('sym') ?? 'ES'} studies={(q.get('studies') ?? 'EMA_20').split(',').filter(Boolean)} />;
+  if (RAW) {
+    const studies = (q.get('studies') ?? 'EMA_20').split(',').filter(Boolean);
+    return <RawChart table={RAW} sym={q.get('sym') ?? 'ES'} studies={studies} annotations={ANNOTATIONS} user={USER} />;
+  }
   if (WIDGET) return <SingleWidget name={WIDGET} type={WIDGET_TYPE} />;
+  return <Grid />;
+}
+
+function Grid() {
   const cols = Math.ceil(Math.sqrt(N));
   const root = useRef<HTMLDivElement>(null);
   // a layout effect runs before the charts' own effects create them, so no "ready" event is missed
   useLayoutEffect(() => attachTvlExtensions(root.current!, defaultExtensions(EXT)), []);
+  usePageAnnotations();
   return (
     <div ref={root} className="grid" style={{ gridTemplateColumns: `repeat(${cols}, 1fr)` }}>
       {SYMS.slice(0, N).map(s => (

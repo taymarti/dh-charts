@@ -16,6 +16,8 @@
     "@types/react": "^18.3.12",
     "react": "^18.3.1",
     "typescript": "~5.7.2",
-    "vite": "^6.0.7"
+    "vite": "^6.0.7",
+    "@deephaven/jsapi-bootstrap": "^1.30.0",
+    "@deephaven/jsapi-types": "~41.11.0"
   }
 }

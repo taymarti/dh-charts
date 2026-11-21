@@ -6,6 +6,7 @@ Installing this package registers one JS plugin with the Deephaven server. It ap
 deephaven.ui dashboards included.
 
 Python layers (see README.md for which front ends each one serves):
+  dh_chart_ext.store      P   annotations (price lines, drawings) in one table for every front end
   dh_chart_ext.data       L0  tables: bars, studies, the published standard set
   dh_chart_ext.charts     L1  TvlCharts composed from L0 tables
   dh_chart_ext.workspace  L2  a deephaven.ui toolbar + chart component

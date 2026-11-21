@@ -7,6 +7,8 @@ Published fields, one per layer and front end (README.md):
   chart_ES                             L1: one composed chart (React: WidgetView)
   ws                                   L2: one workspace (a deephaven.ui element)
   ws_grid                              L2: a 2x2 dashboard of workspaces
+  ws_alice, ws_bob                     L2: the workspace as two named users (sharing demo)
+  chart_annotations                    P: saved price lines (and later drawings); app.d/annotations.parquet
 
 Run (dh-chart-ext installed in the server's environment):
   python run_server.py --port 10040 --app-dir app.d
@@ -22,6 +24,7 @@ exec((_app_dir.parent / "perf" / "app.d" / "feeds.py").read_text(encoding="utf-8
 
 from dh_chart_ext.charts import price_chart  # noqa: E402
 from dh_chart_ext.data import EMA, RSI, Bollinger, Volume, for_symbol  # noqa: E402
+from dh_chart_ext.store import annotation_table  # noqa: E402
 from dh_chart_ext.workspace import ChartSource, chart_workspace  # noqa: E402
 
 source = ChartSource(ticks)  # noqa: F821 (from feeds.py)
@@ -36,11 +39,16 @@ chart_ES = price_chart(
     title="ES",
 )
 
-# L2: workspaces
-ws = chart_workspace(source, symbol="ES", studies=("Volume", "EMA_20"))
+# P: one annotations table for every front end, kept on disk across restarts
+chart_annotations = annotation_table(path=_app_dir / "annotations.parquet")
+
+# L2: workspaces (user=None: a per-browser id)
+ws = chart_workspace(source, symbol="ES", studies=("Volume", "EMA_20"), annotations=chart_annotations)
+ws_alice = chart_workspace(source, symbol="ES", annotations=chart_annotations, user="alice")
+ws_bob = chart_workspace(source, symbol="ES", annotations=chart_annotations, user="bob")
 ws_grid = ui.dashboard(
     ui.column(
-        ui.row(ui.panel(chart_workspace(source, symbol="ES"), title="ES"), ui.panel(chart_workspace(source, symbol="NQ"), title="NQ")),
-        ui.row(ui.panel(chart_workspace(source, symbol="ZN"), title="ZN"), ui.panel(chart_workspace(source, symbol="CL"), title="CL")),
+        ui.row(ui.panel(chart_workspace(source, symbol="ES", annotations=chart_annotations), title="ES"), ui.panel(chart_workspace(source, symbol="NQ", annotations=chart_annotations), title="NQ")),
+        ui.row(ui.panel(chart_workspace(source, symbol="ZN", annotations=chart_annotations), title="ZN"), ui.panel(chart_workspace(source, symbol="CL", annotations=chart_annotations), title="CL")),
     )
 )

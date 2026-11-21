@@ -105,7 +105,7 @@ whenever the plugin reconfigures its series. An extension is
 | Feature | Source | Status |
 |---|---|---|
 | Crosshair sync across every chart (same time, each chart's own price) | ours (`ext/src/extensions.ts`) | Works in both hosts |
-| User price lines ("+" at the right edge) | official `@tradingview/lwc-plugin-user-price-lines` 1.0.0, as published | Works in the React host |
+| Persistent price lines ("+" at the right edge; Shift+click deletes, Ctrl+click shares) | official `@tradingview/lwc-plugin-user-price-lines` 1.0.0, bound to the annotations table (`ext/src/persistent-price-lines.ts`, `dh_chart_ext/store.py`) | Verified in all three groups: saved per user, survive chart rebuilds and server restarts (parquet), others' shared lines in blue with the owner's name, soft delete |
 | Session/time-range shading | ours (`ext/src/lwc-plugins/time-range-shading.ts`) | Works in both hosts |
 
 ## Findings that shape the design
@@ -185,8 +185,7 @@ dashboard); `perf/README.md` has the benchmark.
 
 ## Next
 
-1. Persistence (P): drawings, price lines and settings in a Deephaven input table, re-applied by the
-   hook when a chart rebuilds. Required before drawing tools, since every data control rebuilds the chart.
+1. Persistence (P) is done for price lines (`chart_annotations`; owner is client-supplied on Community, use authenticated users + row ACLs on Enterprise). Still to persist: workspace state (resolution, studies, range reset on reload).
 2. C3 for group C: a toolbar kit and a table-to-LWC adapter (added and modified rows, time-zone
    formatting), from `RawChart.tsx` and the benchmark client.
 3. Drawing tools (trend line, rectangle, horizontal ray, Fibonacci) positioned by time and price.

@@ -12,6 +12,6 @@ export default defineConfig({
     emptyOutDir: true,
     minify: false,
     // exports.default = plugin (the shape Deephaven's loader reads, as in the TradingView plugin)
-    rollupOptions: { external: ['react', '@deephaven/plugin'], output: { exports: 'named' } },
+    rollupOptions: { external: ['react', '@deephaven/plugin', '@deephaven/jsapi-bootstrap'], output: { exports: 'named' } },
   },
 });

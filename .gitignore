@@ -12,3 +12,6 @@ notebooks/
 
 # local tool settings
 .claude/settings.local.json
+
+# demo app data
+app.d/annotations.parquet
