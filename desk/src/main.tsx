@@ -6,12 +6,13 @@
  *   &tz=America/Chicago                    the charts' time zone (default local)
  *   &api=chart_api                         the request API (charts, workspaces)
  */
-import { StrictMode, useEffect, useState } from 'react';
+import { StrictMode, useCallback, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { browserOwner } from '@acme/chart-ext';
 import { connect } from '@acme/dh-bindings';
 import {
   DeephavenRoot,
+  EngineResolverProvider,
   Shell,
   apiWorkspaceStore,
   chartPanel,
@@ -29,6 +30,7 @@ import {
   type WorkspaceStore,
 } from '@acme/app-shell';
 import type { DockviewApi } from 'dockview-react';
+import type { EngineAddress, EngineResolver } from '@acme/app-shell';
 
 const q = new URLSearchParams(location.search);
 const USER = q.get('user') ?? browserOwner();
@@ -69,16 +71,28 @@ function App() {
     ]);
     setStore(client ? apiWorkspaceStore(client) : localWorkspaceStore());
   }, [symbols, client, error]);
+  // panels that read from a run's own engine ask the central API where it is and for its key (owner only)
+  const resolveEngine = useCallback<EngineResolver>(
+    async ref => {
+      if (!client) throw new Error('the request API is not connected');
+      const { result } = await client.request<EngineAddress & { up: boolean }>('backtest_engine', { run_id: ref.run });
+      if (!result.url) throw new Error('its engine is not up yet');
+      return result;
+    },
+    [client],
+  );
   if (!kinds) return <div style={{ color: '#787b86', padding: 16, font: '13px sans-serif' }}>connecting…</div>;
   return (
-    <Shell
-      kinds={kinds}
-      store={store}
-      defaultLayout={defaultLayout}
-      title="Desk"
-      extra={<span style={{ color: '#787b86', fontSize: 12 }}>{USER}</span>}
-      popoutUrl="/popout.html"
-    />
+    <EngineResolverProvider resolve={resolveEngine}>
+      <Shell
+        kinds={kinds}
+        store={store}
+        defaultLayout={defaultLayout}
+        title="Desk"
+        extra={<span style={{ color: '#787b86', fontSize: 12 }}>{USER}</span>}
+        popoutUrl="/popout.html"
+      />
+    </EngineResolverProvider>
   );
 }
 

@@ -76,3 +76,40 @@ def test_cancel(bt):
     time.sleep(3)
     assert bt.result("backtest_cancel", run_id=r["run_id"])[0] == {"cancelled": True}
     assert wait_for(bt, r["run_id"])["status"] == "cancelled"
+
+
+@pytest.mark.skipif(not os.environ.get("DH_SLOW"), reason="starts a Deephaven engine for the run (30-60 s); set DH_SLOW=1")
+def test_an_engine_run_serves_its_tables_then_its_archive(bt):
+    from pydeephaven import Session
+
+    ex = bt.result("strategy_example")[0]
+    r = bt.result("backtest_submit", code=ex["code"], params={**ex["params"], "symbols": ["ES"], "speed": 50000, "engine": True})[0]
+    assert r["tables"]["equity"] == "equity"  # the standard names, in the run's own engine
+    run = wait_for(bt, r["run_id"], timeout=300)
+    assert run["status"] == "done", run
+    deadline = time.time() + 60
+    while not bt.result("backtest_engine", run_id=r["run_id"])[0]["archive"] and time.time() < deadline:
+        time.sleep(1)
+    eng = bt.result("backtest_engine", run_id=r["run_id"])[0]
+    assert eng["up"] and eng["archive"] and eng["url"].startswith("http://")
+    host, port = eng["url"][len("http://"):].split(":")
+    with pytest.raises(Exception):  # the engine wants its key
+        Session(host=host, port=int(port)).open_table("trades")
+    s = Session(host=host, port=int(port), auth_type="io.deephaven.authentication.psk.PskAuthenticationHandler",
+                auth_token=eng["psk"])
+    try:
+        assert s.open_table("trades").to_arrow().num_rows == run["trades"]
+        info = s.open_table("run_info").to_arrow().to_pydict()
+        assert info["Status"] == ["done"] and info["Trades"] == [run["trades"]]
+        assert s.open_table("prices").to_arrow().num_rows == run["bars"]
+    finally:
+        s.close()
+    arc = bt.result("backtest_archive", run_id=r["run_id"])[0]["tables"]
+    assert set(arc) >= {"trades", "equity", "positions", "prices", "run_info"}
+    # stop the lingering engine; the archive stays
+    bt.result("backtest_cancel", run_id=r["run_id"])
+    deadline = time.time() + 30
+    while bt.result("backtest_engine", run_id=r["run_id"])[0]["up"] and time.time() < deadline:
+        time.sleep(1)
+    assert not bt.result("backtest_engine", run_id=r["run_id"])[0]["up"]
+    assert bt.result("backtest_archive", run_id=r["run_id"])[0]["tables"] == arc

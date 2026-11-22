@@ -40,6 +40,15 @@ export {
   useTableLease,
   type Loaded,
 } from './deephaven';
+export {
+  EngineResolverProvider,
+  EngineScope,
+  acquireEngine,
+  useEngineSession,
+  type EngineAddress,
+  type EngineRef,
+  type EngineResolver,
+} from './engines';
 export { DataGrid, formatCell, type DataGridProps, type GridState } from './grid/DataGrid';
 export {
   chartPanel,

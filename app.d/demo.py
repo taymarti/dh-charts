@@ -94,7 +94,9 @@ workspaces = _workspaces.table
 
 # Backtests from the desk: strategies per user (app.d/strategies.parquet), runs in their own process (the CEP
 # stand-in, cep_sim/runner.py), results streamed into bt<N>_* tables; backtest_runs lists every run
-_backtests = BacktestService(dh_port=int(os.environ.get("DH_PORT", "10040")), path=_app_dir / "strategies.parquet")
+_backtests = BacktestService(dh_port=int(os.environ.get("DH_PORT", "10040")), path=_app_dir / "strategies.parquet",
+                             archive_dir=_app_dir / "runs",  # engine runs' Parquet archives
+                             engine_linger_s=float(os.environ.get("BT_ENGINE_LINGER_S", "600")))
 _backtests.register(chart_api)
 backtest_runs = _backtests.runs
 

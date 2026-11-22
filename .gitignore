@@ -18,3 +18,4 @@ app.d/annotations.parquet
 app.d/alerts.parquet
 app.d/workspaces.parquet
 app.d/strategies.parquet
+app.d/runs/

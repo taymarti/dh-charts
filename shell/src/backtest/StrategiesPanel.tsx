@@ -13,8 +13,12 @@ export interface RunInfo {
   run_id: number;
   strategy: string;
   status: 'starting' | 'running' | 'done' | 'error' | 'cancelled';
-  tables: Record<'trades' | 'orders' | 'positions' | 'signals' | 'equity', string>;
+  tables: Partial<Record<'trades' | 'orders' | 'positions' | 'signals' | 'equity' | 'prices' | 'run_info', string>>;
   symbols: string[];
+  /** a run in an engine of its own: where it is (its key comes from backtest_engine), and whether it is up */
+  engine?: { url: string | null; up: boolean } | null;
+  /** its Parquet archive exists (backtest_archive opens it) */
+  archive?: boolean;
   bars: number;
   of: number;
   trades: number;
@@ -53,6 +57,8 @@ export function strategiesPanel(o: { api?: string; user?: string } = {}) {
       const [note, setNote] = useState<string | null>(null);
       const [busy, setBusy] = useState(false);
       const dirty = useRef(false);
+      const [ownEngine, setOwnEngine] = useState(false);
+      const waitFor = useRef<number | null>(null); // an engine run to open as soon as its engine is up
 
       const refresh = useCallback(() => {
         api?.request<Array<{ name: string; saved_at: number }>>('strategies').then(r => setList(r.result), () => {});
@@ -97,7 +103,20 @@ export function strategiesPanel(o: { api?: string; user?: string } = {}) {
       const pollRuns = useCallback(() => {
         api?.request<RunInfo[]>('backtest_runs').then(r => setRuns(r.result), () => {});
       }, [api]);
+      // lingering engines stop on their own: refresh now and then so Open picks the archive
+      useEffect(() => {
+        const t = setInterval(pollRuns, 15_000);
+        return () => clearInterval(t);
+      }, [pollRuns]);
       const active = runs.some(r => r.status === 'starting' || r.status === 'running');
+      useEffect(() => {
+        const r = runs.find(x => x.run_id === waitFor.current);
+        if (r?.engine?.up) {
+          waitFor.current = null;
+          void openResults(r);
+        } else if (r && r.status !== 'starting' && r.status !== 'running') waitFor.current = null;
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+      }, [runs]);
       useEffect(() => {
         pollRuns();
         if (!active) return undefined;
@@ -138,18 +157,47 @@ export function strategiesPanel(o: { api?: string; user?: string } = {}) {
         void load(null);
       };
 
-      const openResults = (run: RunInfo) => {
-        const t = run.tables;
+      /**
+       * A run's results as a floating group of tabs. Where they are read from:
+       *   central mode         the run's tables on this server (bt<N>_*)
+       *   engine, running      the run's own engine (panels carry __engine; the shell connects with its key)
+       *   engine, stopped      its Parquet archive, opened on this server (arc<N>_*)
+       */
+      const openResults = async (run: RunInfo) => {
+        let t = run.tables;
+        let engine: { run: number } | null = null;
+        let where = '';
+        if (run.engine) {
+          const live = run.engine.up || !run.archive;
+          if (live) {
+            engine = { run: run.run_id };
+            where = ' (engine)';
+          } else {
+            try {
+              t = (await api!.request<{ tables: RunInfo['tables'] }>('backtest_archive', { run_id: run.run_id })).result.tables;
+              where = ' (archive)';
+            } catch (e) {
+              return setNote(message(e));
+            }
+          }
+        }
         const syms = run.symbols ?? [];
         const label = `bt${run.run_id}`;
+        const on = (p: Record<string, unknown>) => ({ ...p, __link: null, __engine: engine });
         // a large floating group of tabs, over the layout; the trader docks it where they like
-        const first = openPanel('table', { table: t.trades, __link: null }, `${label} trades`, { floating: 0.8 });
+        const first = openPanel('table', on({ table: t.trades }), `${label} trades${where}`, { floating: 0.8 });
         if (!first) return;
-        const tab = (kind: string, p: Record<string, unknown>, title: string) => openPanel(kind, p, title, { referencePanel: first, direction: 'within' });
-        tab('table', { table: t.orders, __link: null }, `${label} orders`);
-        tab('table', { table: t.positions, __link: null }, `${label} positions`);
+        const tab = (kind: string, p: Record<string, unknown>, title: string) => openPanel(kind, on(p), title, { referencePanel: first, direction: 'within' });
+        tab('table', { table: t.orders }, `${label} orders`);
+        tab('table', { table: t.positions }, `${label} positions`);
         tab('series', { table: t.signals, split: ['Sym', 'Name'], value: 'Value', where: { Kind: 'plot' }, panes: true }, `${label} signals`);
-        for (const s of syms) tab('chart', { symbol: s, toolbar: { resolution: '1m', range: 'all', studies: [], scale: 'normal' }, compare: [], __link: null }, s);
+        if (t.prices) {
+          // engine runs publish the bars they saw; a chart of them works without the central chart API
+          tab('series', { table: t.prices, split: ['Sym'], value: 'Close', panes: true }, `${label} prices`);
+        } else {
+          for (const s of syms) tab('chart', { symbol: s, toolbar: { resolution: '1m', range: 'all', studies: [], scale: 'normal' }, compare: [] }, s);
+        }
+        if (t.run_info) tab('table', { table: t.run_info }, `${label} run`);
         tab('series', { table: t.equity, columns: ['Equity'] }, `${label} equity`); // last: the active tab
       };
 
@@ -162,11 +210,17 @@ export function strategiesPanel(o: { api?: string; user?: string } = {}) {
           const { result } = await api.request<{ run_id: number; tables: RunInfo['tables']; symbols: string[] }>('backtest_submit', {
             code,
             strategy: params.name && !dirty.current ? params.name : name.trim() || '',
-            params: p,
+            params: ownEngine ? { ...p, engine: true } : p,
           });
-          setNote(`Run bt${result.run_id} started`);
+          setNote(ownEngine ? `Run bt${result.run_id}: starting its engine (30-60 s)` : `Run bt${result.run_id} started`);
           const info = { run_id: result.run_id, tables: result.tables, symbols: result.symbols } as RunInfo;
-          openResults(info);
+          if (ownEngine) {
+            // open the results once the engine is up (the runs list shows the progress meanwhile)
+            waitFor.current = result.run_id;
+            pollRuns();
+            return;
+          }
+          void openResults(info);
           pollRuns();
         } catch (e) {
           setNote(message(e));
@@ -206,6 +260,9 @@ export function strategiesPanel(o: { api?: string; user?: string } = {}) {
               <input value={name} placeholder="Strategy name" onChange={e => setName(e.target.value)} maxLength={64} />
               <button onClick={() => void save()}>Save</button>
               {params.name && <button onClick={() => void remove()}>Delete</button>}
+              <label className="acme-strat-engine" title="Run in an engine of its own, as a CEP deployment does; results are archived when it ends">
+                <input type="checkbox" checked={ownEngine} onChange={e => setOwnEngine(e.target.checked)} /> Own engine
+              </label>
               <button className="acme-strat-run" onClick={() => void run()} disabled={busy || problems.length > 0}>
                 {busy ? 'Starting…' : 'Run backtest'}
               </button>
@@ -245,6 +302,7 @@ export function strategiesPanel(o: { api?: string; user?: string } = {}) {
                     <th>Trades</th>
                     <th>P&amp;L</th>
                     <th>Max DD</th>
+                    <th>Where</th>
                     <th />
                   </tr>
                 </thead>
@@ -262,8 +320,24 @@ export function strategiesPanel(o: { api?: string; user?: string } = {}) {
                       <td>{r.trades}</td>
                       <td className={r.pnl >= 0 ? 'up' : 'down'}>{money.format(r.pnl)}</td>
                       <td>{(r.maxdrawdown * 100).toFixed(2)}%</td>
+                      <td title={r.engine?.url ?? undefined}>
+                        {r.engine
+                          ? r.engine.up
+                            ? <span className="up">● engine</span>
+                            : r.archive
+                              ? 'archive'
+                              : r.status === 'starting'
+                                ? 'engine starting'
+                                : 'engine stopped'
+                          : 'central'}
+                      </td>
                       <td>
-                        <button onClick={() => openResults(r)}>Open</button>
+                        <button onClick={() => void openResults(r)}>Open</button>
+                        {r.engine?.up && r.status === 'done' && (
+                          <button onClick={() => void api.request('backtest_cancel', { run_id: r.run_id }).then(pollRuns)} title="Stop its engine; the archive stays">
+                            Stop engine
+                          </button>
+                        )}
                         {(r.status === 'running' || r.status === 'starting') && (
                           <button onClick={() => void api.request('backtest_cancel', { run_id: r.run_id }).then(pollRuns)}>Cancel</button>
                         )}
@@ -272,7 +346,7 @@ export function strategiesPanel(o: { api?: string; user?: string } = {}) {
                   ))}
                   {runs.length === 0 && (
                     <tr>
-                      <td colSpan={8} className="acme-empty">
+                      <td colSpan={9} className="acme-empty">
                         no runs yet
                       </td>
                     </tr>

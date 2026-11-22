@@ -21,6 +21,7 @@ import { LINK_GROUPS, LinkProvider, createLinkBus, type LinkBus } from '@acme/ch
 import { titleOf, type PanelKind, type PanelProps, type StoredParams } from './registry';
 import { LAYOUT_VERSION, migrateLayout, type WorkspaceLayout, type WorkspaceStore, type WorkspaceSummary } from './workspace-store';
 import { useConnectionState } from './deephaven';
+import { EngineScope } from './engines';
 
 export interface ShellProps {
   kinds: PanelKind[];
@@ -318,7 +319,7 @@ function PanelHost({ kind, dock, add, autosave }: { kind: PanelKind; dock: IDock
     },
     [dock.api, autosave],
   );
-  const { __link, ...own } = params;
+  const { __link, __engine, ...own } = params;
   const props: PanelProps = {
     id: dock.api.id,
     params: own,
@@ -335,7 +336,13 @@ function PanelHost({ kind, dock, add, autosave }: { kind: PanelKind; dock: IDock
   const C = kind.component;
   return (
     <div className="acme-panel">
-      <C {...props} />
+      {__engine ? (
+        <EngineScope engine={__engine}>
+          <C {...props} />
+        </EngineScope>
+      ) : (
+        <C {...props} />
+      )}
     </div>
   );
 }

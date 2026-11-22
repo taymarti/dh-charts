@@ -8,13 +8,29 @@ The contract the real CEP has to keep:
 
 | | |
 |---|---|
-| **in** (stdin, one JSON line) | `run_id`, `code`, `params` (`symbols` and the strategy's own), `speed`, `dh: {host, port}`, `data: {table}`, `tables: {trades, orders, positions, signals, equity}`: the names of input tables to append to |
-| **out** (stdout, JSON lines) | `started` (bars), `progress` (bars, of, equity, trades, pnl), `log` (text), then `done` (summary) or `error` (message, line) |
+| **in** (stdin, one JSON line) | `run_id`, `code`, `params` (`symbols` and the strategy's own), `speed`, `dh: {host, port}`, `data: {table}`, and either `tables: {trades, orders, positions, signals, equity}` (central mode: the names of input tables to append to) or `engine: {host, port, psk, heap, linger_s}` and `archive_dir` (engine mode) |
+| **out** (stdout, JSON lines) | `started` (bars), `progress` (bars, of, equity, trades, pnl), `log` (text), then `done` (summary) or `error` (message, line); engine mode adds `engine` (host, port, startup_s) first and `archived` (path), `lingering` (seconds) last. Lines that are not JSON (the embedded engine's own startup output) are ignored |
 | **tables** | append-only `trades`, `orders`, `signals` (Kind `plot` or `signal`), `equity`; `positions` keyed by `Sym`. Schemas in `dh_chart_ext/backtests.py` (`OUTPUTS`) |
 
-The server (the PQ) creates the run's tables and publishes them as `bt<N>_<kind>`; `backtest_submit`'s
-`targets` lets the UI name existing input tables instead. A CEP that creates its own tables and reports
-their names back is the other variant; the runner would then print `{"event": "tables", ...}` first.
+Two modes:
+
+- **Central**: the server (the PQ) creates the run's tables and publishes them as `bt<N>_<kind>`;
+  `backtest_submit`'s `targets` lets the UI name existing input tables instead.
+- **Engine** (`params.engine`): the run starts a Deephaven engine of its own, as a CEP deployment does
+  (a local engine for a backtest, the PQ's own when deployed on Enterprise). It publishes the standard
+  names in that engine (`trades`, `orders`, `positions`, `signals`, `equity`, plus `prices`, the bars it
+  saw, and `run_info`, its own status), prints `{"event": "engine", "host", "port"}` once it is up, writes
+  every table to Parquet under `archive_dir/<run_id>/` when it ends, and keeps serving for `linger_s`.
+  The engine takes a pre-shared key: Deephaven answers any web origin's CORS requests (C29), so an
+  anonymous engine could be read and written by any page in the trader's browser.
+
+Measured here (Windows, Java 17, the central server also running): an engine took 17 to 37 s to start
+with a 1 GB heap. A run's results are only as available as its engine: the archive is what outlives it.
+
+One caution for viewers connecting straight to a strategy's engine: in 42.6 a websocket client that stops
+reading can block an update-graph thread in a synchronous send, and with it the whole engine, for good
+(C30). Viewers on HTTPS (fetch instead of websockets), or reading the archive or a replica, avoid putting
+the strategy's own engine at a browser's mercy.
 
 Strategy code is checked twice: by the server when saved or submitted, and by the runner before it runs
 (`dh_chart_ext.sandbox`). That is sanitizing, not sandboxing: the process is the boundary. In production the

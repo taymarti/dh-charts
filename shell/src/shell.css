@@ -629,3 +629,15 @@
   height: 100%;
   background: var(--acme-accent, #2962ff);
 }
+
+.acme-engine-gone {
+  position: absolute;
+  top: 4px;
+  right: 8px;
+  z-index: 5;
+  padding: 2px 8px;
+  border-radius: 3px;
+  background: rgba(239, 83, 80, 0.15);
+  color: #ef5350;
+  font-size: 11px;
+}

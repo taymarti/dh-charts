@@ -56,7 +56,11 @@ export function definePanel<P extends object>(kind: PanelKind<P>): PanelKind<P> 
 }
 
 /** The params the shell stores: the kind's own, plus the panel's link group. */
-export type StoredParams = Record<string, unknown> & { __link?: string | null };
+export type StoredParams = Record<string, unknown> & {
+  __link?: string | null;
+  /** read from another engine (a run's), not the page's own: see engines.tsx */
+  __engine?: { run: number } | null;
+};
 
 export function titleOf(kind: PanelKind, params: object): string {
   return typeof kind.title === 'function' ? kind.title(params) : kind.title;

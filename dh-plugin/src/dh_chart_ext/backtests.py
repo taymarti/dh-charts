@@ -25,6 +25,14 @@ Methods:
   backtest_submit   {code?, strategy?, params?, targets?}  -> {run_id, tables: {kind: name}, symbols, status}  + the tables
   backtest_cancel   {run_id}                    -> {cancelled}
   backtest_runs     {}                          -> this user's runs, newest first
+  backtest_engine   {run_id}                    -> {url, psk, up, archive}            an engine run's address and key
+  backtest_archive  {run_id}                    -> {tables: {kind: name}}             its Parquet archive, opened here
+
+Engine mode (params.engine = true): the run's process starts a Deephaven engine of its own (a free port on
+engine_host, a pre-shared key) and publishes the standard tables there (trades, orders, positions, signals,
+equity, prices, run_info), as a CEP with its own engine would; the registry (`runs`) holds its address, and
+the key goes only to its owner (backtest_engine). When the run ends it writes the tables to Parquet under
+archive_dir/<run_id>/ and keeps serving for engine_linger_s; after that, backtest_archive opens the archive.
 
 The process is the sandbox, and the Launcher is where that is decided: LocalLauncher runs `python -I` in a
 temporary directory with a minimal environment, a time limit, and on POSIX memory and CPU limits; it is for
@@ -35,6 +43,8 @@ hands the spec to the CEP's own runner, local or remote.
 from __future__ import annotations
 
 import itertools
+import secrets
+import socket
 import json
 import os
 import pathlib
@@ -46,7 +56,7 @@ import time
 from typing import Callable, Optional
 
 from deephaven import dtypes, new_table
-from deephaven.column import datetime_col, double_col, long_col, string_col
+from deephaven.column import bool_col, datetime_col, double_col, long_col, string_col
 from deephaven.table_factory import input_table
 
 from .rpc import Api, ApiError, Reply
@@ -70,7 +80,7 @@ OUTPUTS = {
 RUN_COLUMNS = {"RunId": dtypes.int64, "User": dtypes.string, "Strategy": dtypes.string, "Status": dtypes.string,
                "Started": dtypes.Instant, "Ended": dtypes.Instant, "Bars": dtypes.int64, "Of": dtypes.int64,
                "Trades": dtypes.int64, "Equity": dtypes.double, "Pnl": dtypes.double, "MaxDrawdown": dtypes.double,
-               "Message": dtypes.string}
+               "Message": dtypes.string, "Engine": dtypes.string, "EngineUp": dtypes.bool_, "Archive": dtypes.string}
 STRATEGY_COLUMNS = {"User": dtypes.string, "Name": dtypes.string, "Code": dtypes.string, "Params": dtypes.string,
                     "SavedAt": dtypes.Instant}
 
@@ -114,7 +124,7 @@ class LocalLauncher(Launcher):
         resource.setrlimit(resource.RLIMIT_CPU, (self.cpu_s, self.cpu_s))
 
     def launch(self, spec: dict) -> subprocess.Popen:
-        keep = ("SYSTEMROOT", "PATH", "TEMP", "TMP", "LANG")  # Windows needs SYSTEMROOT for sockets
+        keep = ("SYSTEMROOT", "PATH", "TEMP", "TMP", "LANG", "JAVA_HOME")  # SYSTEMROOT: sockets on Windows; JAVA_HOME: engine runs
         env = {k: v for k, v in os.environ.items() if k in keep}
         return _start([self.python, "-I", str(self.runner)], spec, env=env,
                       preexec_fn=self._limits if os.name == "posix" else None)
@@ -138,7 +148,8 @@ class BacktestService:
     def __init__(self, *, dh_host: str = "localhost", dh_port: int = 10040, data_table: str = "bars_1m",
                  launcher: Optional[Launcher] = None, path: Optional[str | pathlib.Path] = None,
                  timeout_s: float = 900.0, max_active_per_user: int = 3, keep_runs_per_user: int = 20,
-                 scope: Optional[dict] = None):
+                 scope: Optional[dict] = None, archive_dir: Optional[str | pathlib.Path] = None,
+                 engine_host: str = "127.0.0.1", engine_heap: str = "1g", engine_linger_s: float = 600.0):
         import __main__
 
         from deephaven.execution_context import get_exec_ctx
@@ -146,6 +157,9 @@ class BacktestService:
         self._ctx = get_exec_ctx()  # the watcher threads write tables: they need the app's execution context
         self.dh = {"host": dh_host, "port": dh_port}
         self.data_table = data_table
+        self.archive_dir = str(pathlib.Path(archive_dir).resolve()) if archive_dir else None
+        self.engine = {"host": engine_host, "heap": engine_heap, "linger_s": engine_linger_s}
+        self._archives: dict[int, dict] = {}  # run_id -> {kind: name} of archives opened here
         self.launcher = launcher or LocalLauncher()
         self.timeout_s = timeout_s
         self.max_active = max_active_per_user
@@ -193,8 +207,9 @@ class BacktestService:
             if active >= self.max_active:
                 raise ApiError(f"{user} has {active} backtests running (limit {self.max_active})", "limit")
             run_id = next(self._ids)
+        engine = bool(params.get("engine"))
         names, tables = {}, []
-        for kind, (cols, keys) in OUTPUTS.items():
+        for kind, (cols, keys) in ([] if engine else OUTPUTS.items()):
             if targets and targets.get(kind):  # the UI's override: append to existing input tables
                 name = str(targets[kind])
                 if name not in self.scope:
@@ -207,11 +222,19 @@ class BacktestService:
             names[kind] = name
             tables.append(t)
         spec = {"run_id": run_id, "code": code, "params": params, "speed": float(params.get("speed", 1000)),
-                "dh": self.dh, "data": {"table": params.get("data", self.data_table)}, "tables": names}
+                "dh": self.dh, "data": {"table": params.get("data", self.data_table)}, "strategy": strategy, "user": user}
+        key = None
+        if engine:  # the run starts an engine of its own: a free port, a key only its owner gets
+            key = secrets.token_urlsafe(18)
+            spec.update(engine={**self.engine, "port": _free_port(), "psk": key}, archive_dir=self.archive_dir)
+            names = {k: k for k in ("trades", "orders", "positions", "signals", "equity", "prices", "run_info")}
+        else:
+            spec["tables"] = names
         rec = {"user": user, "strategy": strategy or "(unsaved)", "names": names, "status": "starting", "symbols": list(symbols),
                "row": {"Bars": 0, "Of": 0, "Trades": 0, "Equity": float(params.get("capital", 100_000)), "Pnl": 0.0,
                        "MaxDrawdown": 0.0, "Message": ""},
-               "started": int(time.time() * 1000), "ended": None, "proc": None, "owned": not targets}
+               "started": int(time.time() * 1000), "ended": None, "proc": None, "owned": not targets and not engine,
+               "engine": {"url": None, "psk": key, "up": False} if engine else None, "archive": None}
         with self._lock:
             self._run[run_id] = rec
         self._write_run(run_id)
@@ -229,17 +252,51 @@ class BacktestService:
         if not rec or rec["user"] != user:
             raise ApiError(f"no run {run_id}", "not_found")
         if rec["status"] not in ("starting", "running"):
+            if rec["engine"] and rec["engine"]["up"] and rec["proc"] is not None:
+                rec["proc"].kill()  # a finished run's lingering engine: stop it (its archive stays)
             return False
         if rec["proc"] is not None:
             rec["proc"].kill()
         self._finish(run_id, "cancelled", "cancelled by the user")
         return True
 
+    def engine_of(self, user: str, run_id: int) -> dict:
+        rec = self._run.get(run_id)
+        if not rec or rec["user"] != user:
+            raise ApiError(f"no run {run_id}", "not_found")
+        if not rec["engine"]:
+            raise ApiError(f"run {run_id} has no engine of its own", "bad_params")
+        e = rec["engine"]
+        return {"url": e["url"], "psk": e["psk"], "up": e["up"], "archive": rec["archive"] is not None}
+
+    def open_archive(self, user: str, run_id: int) -> dict:
+        """Load a finished engine run's Parquet archive here, published as arc<run>_<kind>; names by kind."""
+        rec = self._run.get(run_id)
+        if not rec or rec["user"] != user:
+            raise ApiError(f"no run {run_id}", "not_found")
+        if not rec["archive"]:
+            raise ApiError(f"run {run_id} has no archive", "not_found")
+        with self._lock:
+            if run_id in self._archives:
+                return self._archives[run_id]
+        from deephaven import parquet
+
+        names = {}
+        for f in sorted(pathlib.Path(rec["archive"]).glob("*.parquet")):
+            name = f"arc{run_id}_{f.stem}"
+            self.scope[name] = parquet.read(f.resolve().as_uri())
+            names[f.stem] = name
+        with self._lock:
+            self._archives[run_id] = names
+        return names
+
     def list_runs(self, user: str) -> list[dict]:
         with self._lock:
             mine = [(rid, r) for rid, r in self._run.items() if r["user"] == user]
         return [{"run_id": rid, "strategy": r["strategy"], "status": r["status"], "tables": r["names"], "symbols": r["symbols"],
-                 "started": r["started"], "ended": r["ended"], **{k.lower(): v for k, v in r["row"].items()}}
+                 "started": r["started"], "ended": r["ended"], **{k.lower(): v for k, v in r["row"].items()},
+                 "engine": {"url": r["engine"]["url"], "up": r["engine"]["up"]} if r["engine"] else None,
+                 "archive": r["archive"] is not None}
                 for rid, r in sorted(mine, key=lambda x: -x[0])]
 
     # the process
@@ -259,7 +316,7 @@ class BacktestService:
         rec = self._run[run_id]
         proc = rec["proc"]
         deadline = time.monotonic() + self.timeout_s
-        killer = threading.Timer(self.timeout_s, lambda: proc.poll() is None and proc.kill())
+        killer = threading.Timer(self.timeout_s, lambda: proc.poll() is None and rec["status"] in ("starting", "running") and proc.kill())
         killer.daemon = True
         killer.start()
         try:
@@ -269,7 +326,17 @@ class BacktestService:
                 except ValueError:
                     continue
                 ev = msg.get("event")
-                if ev == "started":
+                if ev == "engine":
+                    host = msg.get("host", self.engine["host"])
+                    rec["engine"].update(url=f"http://{host}:{int(msg['port'])}", up=True)
+                    rec["row"]["Message"] = f"engine up in {msg.get('startup_s', '?')} s"
+                elif ev == "archived":
+                    rec["archive"] = str(msg.get("path"))
+                    self._write_run(run_id)
+                    continue
+                elif ev == "lingering":
+                    continue
+                elif ev == "started":
                     rec["status"] = "running"
                     rec["row"]["Of"] = int(msg.get("bars", 0))
                 elif ev == "progress":
@@ -290,6 +357,9 @@ class BacktestService:
                 if rec["status"] in ("starting", "running"):
                     self._write_run(run_id)
             proc.wait()
+            if rec["engine"]:
+                rec["engine"]["up"] = False
+                self._write_run(run_id)
             if rec["status"] in ("starting", "running"):
                 err = _tail(getattr(proc, "stderr_path", None))
                 timed_out = time.monotonic() >= deadline
@@ -318,6 +388,9 @@ class BacktestService:
             long_col("Bars", [int(r["Bars"])]), long_col("Of", [int(r["Of"])]), long_col("Trades", [int(r["Trades"])]),
             double_col("Equity", [float(r["Equity"])]), double_col("Pnl", [float(r["Pnl"])]),
             double_col("MaxDrawdown", [float(r["MaxDrawdown"])]), string_col("Message", [r["Message"]]),
+            string_col("Engine", [rec["engine"]["url"] if rec["engine"] else None]),
+            bool_col("EngineUp", [bool(rec["engine"] and rec["engine"]["up"])]),
+            string_col("Archive", [rec["archive"]]),
         ]))
 
     def _trim(self, user: str) -> None:
@@ -396,9 +469,25 @@ class BacktestService:
             return {"cancelled": svc.cancel(ctx.user, run_id)}
 
         @api.method
+        def backtest_engine(ctx, run_id: int):
+            """Where a run's own engine is and its key (the run's owner only)."""
+            return svc.engine_of(ctx.user, run_id)
+
+        @api.method
+        def backtest_archive(ctx, run_id: int):
+            """Open a finished engine run's archive here: the table names by kind."""
+            return {"tables": svc.open_archive(ctx.user, run_id)}
+
+        @api.method
         def backtest_runs(ctx):
             """This user's runs, newest first."""
             return svc.list_runs(ctx.user)
+
+
+def _free_port() -> int:
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
 
 
 def _tail(path: Optional[str]) -> list[str]:

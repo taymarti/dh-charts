@@ -98,6 +98,7 @@ Rules that keep the pieces reusable:
 | DAG explorer | browse the app's tables and graph, open any as a grid or chart | ◐ v0 | the shell's `graphPanel` (columns by depth, cost per cycle; named tables open in a table panel) over `dh_chart_ext/introspection.py` (method `graph`, cached) over deephaven-compare `introspect/` | grouping of wide fan-outs; search; live costs; open a node as a chart |
 | Theming, shortcuts, command palette, settings, undo | | ○ (house theme constants) | `charts.py`, `react/src/styles.ts` | one token set for chart and widgets; light theme; undo across widgets |
 | Permissions in the UI | hide or disable what the user may not do | ○ | | from identity and ACLs (layer 4) |
+| Other engines | panels reading from a run's own engine: a reference in the layout ({run}), resolved to an address and key when opened; sessions shared per engine | ✅ v0 | `shell/src/engines.tsx` (`EngineResolverProvider`, `EngineScope`, `acquireEngine`); the desk resolves through `backtest_engine` | engines found through a registry other than our API (Enterprise PQs); viewer URLs for one engine |
 | Hosts | where the shell runs | ◐ | `desk/` (our own shell, :4060), `web/` (standalone React on Deephaven's bootstrap), deephaven.ui, `desk-app` (static build behind its own proxy) | inside Deephaven's web UI as plugins; desktop (Electron); embedded by iframe |
 
 ## 4. Server framework (Python and the engine)
@@ -116,7 +117,7 @@ Rules that keep the pieces reusable:
 | History | lookback paging; demo history; replay | ◐ | `data.Lookback`, `app.d/demo.py`; `dhfw` replay mode, `TableReplayer` (X6) | Parquet or a historical store joined to live; base bars kept on disk |
 | Study library | registry of study types with parameters | ✅ six studies | `data.STUDY_TYPES` | more studies; user-defined studies (formulas or Python), sandboxed |
 | Stores | annotations, alerts, settings; snapshots, daily partitions, logs, editable state | ✅ | `dh_chart_ext/store.py`, `alerts.py`; `dhapp.store` (four kinds, Community and Enterprise) | one keyed-store helper for both repos; audit history of control writes |
-| Backtest service | strategies per user; runs in their own process (the CEP) streaming into per-run tables; checks on the code | ◐ v0 | `dh_chart_ext/backtests.py`, `sandbox.py`; `cep_sim/runner.py` stands in for the CEP (`cep_sim/README.md`: the contract) | the real CEP behind a launcher; a jailed launcher (`CommandLauncher`); runs kept after a restart (parquet); paper deployment with supervision and a kill switch |
+| Backtest service | strategies per user; runs in their own process (the CEP) streaming into per-run tables (central mode) or into an engine of their own (engine mode, as CEP deployments do); Parquet archives; checks on the code | ◐ v0 | `dh_chart_ext/backtests.py`, `sandbox.py`; `cep_sim/runner.py` stands in for the CEP (`cep_sim/README.md`: the contract) | the real CEP behind a launcher; a jailed launcher (`CommandLauncher`); runs kept after a restart (parquet); paper deployment with supervision and a kill switch |
 | Alert engine | crossings evaluated in the engine, written back | ✅ | `dh_chart_ext/alerts.py` | finer than one cycle; more alert types; delivery channels |
 | Supervised actions | Python side effects off the graph, with health | ✅ | `dhapp.App.action` (X14) | the alert engine as a dhapp action |
 | Sessions | exchange calendars per instrument | ✅ | `dh_chart_ext/sessions.py` | holidays and early closes from a calendar source |
@@ -135,7 +136,7 @@ Rules that keep the pieces reusable:
 | CI | ✅ | dh-charts `.github/workflows/ci.yml` (JS packages, then a live server and the protocol tests); deephaven-compare `pixi run ci` for desk-app |
 | Versions | ✅ pinned | Lightweight Charts 5.2.0, Deephaven Community 42.6, `@deephaven/jsapi-types` ~41.11 (behind the server), the fork at 0.1.0+acme.1; track upgrades in one place |
 | Packaging | ✅ | npm tarballs in lwc-vendor; editable wheel for dh-chart-ext; desk-app as one wheel; package boundaries should follow the layers (below) |
-| Evidence | ✅ | `VERIFIED_FACTS.md` in deephaven-compare (C1–C27 charts, the chart API and the shell, X1–X32 framework) |
+| Evidence | ✅ | `VERIFIED_FACTS.md` in deephaven-compare (C1–C30 charts, the chart API, the shell and engines, X1–X32 framework) |
 | The fork of Deephaven's plugin | ✅ | needed only for A/B; propose its changes upstream, or drop it with A/B |
 | Licensing | ✅ Apache-2.0 | no TradingView attribution added (decided) |
 
@@ -214,7 +215,11 @@ What building out decisions 1–3 showed, most pressing first:
 | Pop-out windows are unverified | the test browser opens no second window | check in a normal browser: LWC and the grid in a child window, styles copied |
 | Group C's chart panel still reads fixed table names (`quotes`, `bars_<res>`, `sessions`) | `RawWorkspace` internals | panel options, or the API (`symbols`, a quotes node) |
 | A/B keep their own pages in `web/` | two hosts to maintain | decision 7 |
-| Runs don't survive a restart | a saved workspace's run tabs point at tables that are gone | write a finished run's tables to parquet and reload them on demand; a run index on disk |
+| Runs don't survive a restart | central-mode run tabs point at tables that are gone; the registry (`backtest_runs`) is in memory | engine runs are archived (done); archive central runs too; keep the registry on disk so archives can be found after a restart |
+| An engine per run costs a JVM: 17-37 s to start, 1 GB heap, lingering after the run | slow first results; memory grows with runs left lingering | a pool of warm engines (or several runs per engine), a limit on engines per user and in total, shorter linger with the archive as the normal way back |
+| A stalled websocket viewer can wedge an engine (C30) | the central server stopped answering for good after a browser tab's websocket stalled | viewers over HTTPS (fetch), or reading archives or a replica rather than the strategy's engine; report upstream |
+| Engine keys come from the central API | a viewer with no central server (a URL to an engine) has no way to get the key | a token from the identity service, scoped to the run (decision 5) |
+| Several JS APIs on one page | each engine's `dh-core.js` is loaded from that engine, one module per engine | fine while they are one version; a shared module when engines differ in version is untested |
 | Strategy code is only sanitized here | `LocalLauncher` runs it as the server's user | the production launcher: its own OS user in a jail or container, only the Deephaven address reachable, memory, CPU and time limits |
 | The CEP writes with anonymous access | any client could append to a run's tables | a per-run token for the CEP; tables writable only by it (needs identity, decision 5) |
 | Run tables are published in the global scope | every user sees every run's tables | per-user visibility (Enterprise ACLs) or shared tickets handed to the owner only |

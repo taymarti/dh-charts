@@ -314,7 +314,10 @@ The demo (`app.d`), per front-end group:
   "+ Panel" adds charts, tables (any published one), forms and the update graph; panels in the same link group
   (the chip in each header) follow one symbol; Save / Save as… keep workspaces on the server per user.
   "+ Panel → Strategies": write a strategy (or start from the example), save it, Run backtest: its trades,
-  orders, positions, plots, equity and price charts open as tabs in a floating window and fill as the run goes
+  orders, positions, plots, equity and price charts open as tabs in a floating window and fill as the run goes.
+  Tick "Own engine" to run it as a CEP deployment would: the run starts a Deephaven engine of its own (its own
+  port and key), the tabs read from that engine, and when its linger ends (`BT_ENGINE_LINGER_S`, default 600)
+  they read its Parquet archive instead
 - The chart API from Python: `pydeephaven` `Session.plugin_client(session.exportable_objects["chart_api"])`,
   then JSON requests on its `req_stream` (the browser console has `window.chartApi` on an `&api` page)
 
