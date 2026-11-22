@@ -20,8 +20,6 @@
  * ('local' by default, like Deephaven's own chart; 'UTC' or an IANA zone), prices by the instrument's tick.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useApi } from '@deephaven/jsapi-bootstrap';
-import { useConnection } from '@deephaven/app-utils';
 import type { dh as Dh } from '@deephaven/jsapi-types';
 import { ColorType, CrosshairMode, PriceScaleMode, createChart, type IChartApi, type ISeriesApi, type SeriesType } from 'lightweight-charts';
 import {
@@ -48,7 +46,7 @@ import {
   type SeriesFeed,
   type StudyLayout,
 } from '@acme/chart-ext';
-import { requestChart, subscribeRows, tableAnnotationStore, tableFeed, type ApiClient } from '@acme/dh-bindings';
+import { requestChart, safeClose, subscribeRows, tableAnnotationStore, tableFeed, type ApiClient } from '@acme/dh-bindings';
 import {
   AlertsPanel,
   ChartLegend,
@@ -61,7 +59,7 @@ import {
   type ToolbarValue,
   type WatchlistRow,
 } from '@acme/chart-react';
-import { useChartApi } from './chartApi';
+import { useApiClient, useDeephaven } from '../deephaven';
 
 const COLORS = ['#f7a600', '#ab47bc', '#00bcd4', '#8bc34a', '#ff7043', '#90a4ae'];
 const COMPARE_COLORS = ['#2962ff', '#e91e63', '#00bcd4', '#8bc34a'];
@@ -108,8 +106,7 @@ export function RawChart({
   const nav = useRef<Navigation | null>(null);
   const windowRef = useRef(viewWindow);
   windowRef.current = viewWindow;
-  const dh = useApi();
-  const connection = useConnection();
+  const { dh, connection } = useDeephaven();
   const el = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const studiesKey = studies.join(',');
@@ -151,9 +148,9 @@ export function RawChart({
         });
       } else {
         const t = (await connection.getObject({ type: dh.VariableType.TABLE, name: table } as never)) as Dh.Table;
-        if (closed) return t.close();
+        if (closed) return safeClose(t);
         t.applyFilter([t.findColumn('Sym').filter().eq(dh.FilterValue.ofString(sym))]); // server-side
-        cleanups.push(() => t.close());
+        cleanups.push(() => safeClose(t));
         feed = tableFeed(dh, t, ['Open', 'High', 'Low', 'Close', 'Volume', ...studies]);
         layout = studies.map((c, i) => ({ column: c, color: colorOf(c, i), dashed: c.endsWith('_Mid') }));
       }
@@ -201,7 +198,7 @@ export function RawChart({
       // persistent price lines and drawings, if the server publishes the annotations table
       try {
         const at = (await connection.getObject({ type: dh.VariableType.TABLE, name: annotations } as never)) as Dh.Table;
-        if (closed) return at.close();
+        if (closed) return safeClose(at);
         const store = tableAnnotationStore(dh, at, user);
         const unbind = bindPriceLines(chart, price, store, sym);
         const unbindDrawings = bindDrawings(chart, price, store, sym, el.current!);
@@ -209,7 +206,7 @@ export function RawChart({
           unbindDrawings();
           unbind();
           store.close();
-          at.close();
+          safeClose(at);
         });
       } catch {
         /* no annotations table on this server */
@@ -279,8 +276,7 @@ const TABLE_STUDIES = ['EMA_20', 'EMA_50', 'SMA_20', 'BB_20_2', 'VWAP'];
 
 /** Rows of a published quotes table (Sym, Last, Chg, ChgPct), live. */
 function useQuotes(name: string): WatchlistRow[] {
-  const dh = useApi();
-  const connection = useConnection();
+  const { dh, connection } = useDeephaven();
   const [rows, setRows] = useState<WatchlistRow[]>([]);
   useEffect(() => {
     let closed = false;
@@ -289,13 +285,13 @@ function useQuotes(name: string): WatchlistRow[] {
       .getObject({ type: dh.VariableType.TABLE, name } as never)
       .then(obj => {
         const t = obj as Dh.Table;
-        if (closed) return t.close();
+        if (closed) return safeClose(t);
         const unsubscribe = subscribeRows(dh, t, ['Sym', 'Last', 'Chg', 'ChgPct'], rs =>
           setRows(rs.map(r => ({ symbol: String(r.Sym), last: r.Last as number, chg: r.Chg as number, chgPct: r.ChgPct as number }))),
         );
         close = () => {
           unsubscribe();
-          t.close();
+          safeClose(t);
         };
       })
       .catch(() => {});
@@ -408,6 +404,9 @@ export function RawWorkspace({
   apiName = null,
   timeZone = 'local',
   linkGroup = 'red',
+  initialCompare = [],
+  onChange,
+  sidePanel = true,
 }: {
   symbols: string[];
   annotations: string;
@@ -418,13 +417,26 @@ export function RawWorkspace({
   timeZone?: string;
   /** the link group the symbol is shared in (null: not linked) */
   linkGroup?: string | null;
+  /** symbols to compare from the start (API only) */
+  initialCompare?: string[];
+  /** told the toolbar's state, the symbol and the compared symbols whenever they change (to save them) */
+  onChange?: (state: { value: ToolbarValue; symbol: string; compare: string[] }) => void;
+  /** whether the watchlist and alerts panels can open beside the chart (an app shell may have its own) */
+  sidePanel?: boolean;
 }) {
-  const client = useChartApi(apiName, user);
+  const { value: client } = useApiClient(apiName, user ? `user:${user}` : undefined);
   const api = apiName != null;
   const [value, setValue] = useState<ToolbarValue>({ panel: 'watchlist', range: '4h', ...initial });
   const [sym, setSym] = useLink<string>('symbol', { group: linkGroup, initial: initial.symbol ?? symbols[0] });
   const [hidden, setHidden] = useState<string[]>([]);
-  const [compare, setCompare] = useState<{ sym: string; color: string; visible: boolean }[]>([]);
+  const [compare, setCompare] = useState<{ sym: string; color: string; visible: boolean }[]>(() =>
+    initialCompare.map((c, i) => ({ sym: c, color: COMPARE_COLORS[i % COMPARE_COLORS.length], visible: true })),
+  );
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
+  useEffect(() => {
+    onChangeRef.current?.({ value, symbol: sym, compare: compare.map(c => c.sym) });
+  }, [value, sym, compare]);
   const [lwc, setLwc] = useState<{ chart: IChartApi; series: ISeriesApi<SeriesType>[] } | null>(null);
   const quotes = useQuotes('quotes');
   const status = useMarketStatus(sym);
@@ -495,12 +507,12 @@ export function RawWorkspace({
           />
         </div>
       </div>
-      {value.panel === 'watchlist' && (
+      {sidePanel && value.panel === 'watchlist' && (
         <div style={{ width: 280, flex: 'none' }}>
           <Watchlist rows={quotes} selected={sym} onSelect={setSym} />
         </div>
       )}
-      {value.panel === 'alerts' && (
+      {sidePanel && value.panel === 'alerts' && (
         <div style={{ width: 300, flex: 'none' }}>
           <PageAlerts symbol={sym} />
         </div>

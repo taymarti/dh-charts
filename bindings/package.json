@@ -1,7 +1,7 @@
 {
   "name": "@acme/dh-bindings",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Deephaven bindings for @acme/chart-ext: stores over input tables, row subscriptions, table feeds, and the request client for the server's API",
   "license": "Apache-2.0",
   "type": "module",

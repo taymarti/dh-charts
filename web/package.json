@@ -10,6 +10,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@acme/app-shell": "file:../shell",
     "@acme/chart-ext": "file:../ext",
     "@acme/chart-react": "file:../react",
     "@acme/dh-bindings": "file:../bindings",

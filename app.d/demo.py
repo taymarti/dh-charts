@@ -15,6 +15,10 @@ Published fields, one per layer and front end (README.md):
   sessions                             trading hours per symbol (JSON spec), for JS clients
   chart_api                            the chart API (dh_chart_ext.api, type acme.Api): charts on demand as shared nodes
   chart_nodes                          the node cache, live: one row per shared node
+  (chart_api also answers `graph`: the update graph for the desk's graph explorer, via deephaven-compare's
+   introspect module when it is checked out next to this repo, or DH_INTROSPECT_DIR)
+  workspaces                           saved app-shell workspaces per user (dh_chart_ext.workspaces, through chart_api);
+                                       app.d/workspaces.parquet
   instruments                          tick size and name per symbol
   history_ticks                        DEMO_HISTORY_DAYS (default 5) of synthetic ticks before the live feed,
                                        one per DEMO_HISTORY_STEP_S (5) per symbol, busier in regular hours
@@ -26,8 +30,11 @@ import os
 import pathlib
 
 import jpy
-from deephaven import empty_table, merge, ui
+from deephaven import empty_table, merge, perfmon, ui
 from deephaven.updateby import cum_sum
+
+# The graph explorer's edges: ancestry is only logged for nodes built after this log is opened, so first
+perfmon.update_performance_ancestors_log()
 
 # The synthetic feeds (ticks: Timestamp, Sym, Price, Size), run in this scope like an app file.
 _app_dir = pathlib.Path(jpy.get_type("java.lang.System").getProperty("deephaven.application.dir"))
@@ -38,6 +45,7 @@ from dh_chart_ext.api import ChartApi  # noqa: E402
 from dh_chart_ext.charts import price_chart  # noqa: E402
 from dh_chart_ext.data import EMA, RSI, Bollinger, Volume, for_symbol  # noqa: E402
 from dh_chart_ext.store import annotation_table  # noqa: E402
+from dh_chart_ext.workspaces import WorkspaceStore  # noqa: E402
 from dh_chart_ext.workspace import ChartSource, chart_workspace  # noqa: E402
 
 # History before the live feed, so charts can scroll back days: a random walk per symbol that ends
@@ -75,6 +83,24 @@ globals().update(source.standard_tables())
 # (source.nodes); workspaces use it directly, JS clients through this object
 chart_api = ChartApi(source, lease_s=float(os.environ.get("CHART_API_LEASE_S", "90")))  # CI uses a short lease
 chart_nodes = source.nodes.cache.metrics_table()  # the shared nodes, live (Key, Refs, Hits, BuiltS, IdleS, Deps)
+
+# The app shell's saved workspaces, per user, through the same API (methods workspaces, workspace_load, ...)
+_workspaces = WorkspaceStore(path=_app_dir / "workspaces.parquet")
+_workspaces.register(chart_api)
+workspaces = _workspaces.table
+
+# The graph explorer (method `graph`): deephaven-compare's introspect module, from DH_INTROSPECT_DIR or the
+# sibling checkout; skipped when it isn't there
+_introspect_dir = pathlib.Path(os.environ.get("DH_INTROSPECT_DIR", _app_dir.parent.parent / "deephaven-compare" / "introspect"))
+if (_introspect_dir / "dh_introspect.py").exists():
+    import sys
+
+    sys.path.insert(0, str(_introspect_dir))
+    from dh_introspect import introspect as _introspect  # noqa: E402
+
+    from dh_chart_ext.introspection import register_introspection  # noqa: E402
+
+    register_introspection(chart_api, _introspect)
 
 # L1: one composed chart
 chart_ES = price_chart(

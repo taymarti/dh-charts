@@ -112,12 +112,17 @@ def test_closing_a_stream_releases_its_nodes(make_client):
     assert (watcher.node(r["key"]) or {"refs": 0})["refs"] == before - 1
 
 
-def test_repeated_request_holds_once(client):
+def test_repeated_request_holds_one_reference_and_counts(client):
     r1, _ = client.result("chart", sym="CL", res="1m")
     refs1 = client.node(r1["key"])["refs"]
     client.result("chart", sym="CL", res="1m")
-    assert client.node(r1["key"])["refs"] == refs1
+    assert client.node(r1["key"])["refs"] == refs1  # one node reference per stream
     assert client.stats()["held"].count(r1["key"]) == 1
+    # a release for the first request (arriving after the second, as when a page remounts) keeps the second's
+    assert client.result("release", key=r1["key"])[0] == {"released": True}
+    assert client.node(r1["key"])["refs"] == refs1
+    assert client.result("release", key=r1["key"])[0] == {"released": True}
+    assert client.result("release", key=r1["key"])[0] == {"released": False}
 
 
 @pytest.mark.skipif(not os.environ.get("DH_SLOW"), reason="takes the lease plus up to 40 s (2 minutes at 90 s); set DH_SLOW=1")

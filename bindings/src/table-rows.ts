@@ -4,6 +4,7 @@
  * components can render them directly. Meant for tables of tens to hundreds of rows.
  */
 import type { dh as Dh } from '@deephaven/jsapi-types';
+import { safeClose } from './connection';
 
 export type Row = Record<string, unknown>;
 
@@ -24,5 +25,5 @@ export function subscribeRows(dh: typeof Dh, table: Dh.Table, columns: string[],
     }
     onRows(rows);
   });
-  return () => sub.close();
+  return () => safeClose(sub);
 }

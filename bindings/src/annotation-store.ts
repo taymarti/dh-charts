@@ -7,6 +7,7 @@
  * addRow. Every change is applied locally first, then echoed back by the server.
  */
 import type { dh as Dh } from '@deephaven/jsapi-types';
+import { safeClose } from './connection';
 import { newAnnotationId, type Annotation, type AnnotationStore } from '@acme/chart-ext';
 
 const COLS = ['ChartKey', 'Id', 'Kind', 'Owner', 'Shared', 'Deleted', 'Spec', 'UpdatedMs'] as const;
@@ -78,7 +79,7 @@ export function tableAnnotationStore(dh: typeof Dh, table: Dh.Table, owner: stri
       await write({ ...prev, deleted: true, updatedMs: Date.now() });
     },
     close: () => {
-      sub.close();
+      safeClose(sub);
       listeners.clear();
     },
   };

@@ -8,6 +8,7 @@
  *   c.release();      // closes the table; the server drops this stream's hold on the node
  */
 import type { dh as Dh } from '@deephaven/jsapi-types';
+import { safeClose } from './connection';
 import type { SeriesFeed, StudyLayout } from '@acme/chart-ext';
 import type { ApiClient } from './api-client';
 import { tableFeed } from './table-feed';
@@ -63,7 +64,7 @@ export async function requestChart(
     release: () => {
       if (released) return;
       released = true;
-      table.close();
+      safeClose(table);
       void api.request('release', { key: result.key }).catch(() => {});
     },
   };

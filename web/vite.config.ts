@@ -28,6 +28,7 @@ export default defineConfig(({ mode }) => {
         { find: '@acme/chart-ext', replacement: fileURLToPath(new URL('../ext/src/index.ts', import.meta.url)) },
         { find: '@acme/dh-bindings', replacement: fileURLToPath(new URL('../bindings/src/index.ts', import.meta.url)) },
         { find: '@acme/chart-react', replacement: fileURLToPath(new URL('../react/src/index.ts', import.meta.url)) },
+        { find: '@acme/app-shell', replacement: fileURLToPath(new URL('../shell/src/index.ts', import.meta.url)) },
         // CJS/ESM default-export interop fix; see the shim for details.
         {
           find: /^@paciolan\/remote-module-loader$/,

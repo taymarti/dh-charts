@@ -1,0 +1,428 @@
+@import 'dockview-react/dist/styles/dockview.css';
+
+/* The shell's colours follow the charts' (TradingView-like dark). */
+.acme-shell {
+  --acme-bg: #131722;
+  --acme-panel: #1e222d;
+  --acme-line: #2a2e39;
+  --acme-text: #d1d4dc;
+  --acme-dim: #787b86;
+  --acme-accent: #2962ff;
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--acme-bg);
+  color: var(--acme-text);
+  font: 13px -apple-system, BlinkMacSystemFont, 'Trebuchet MS', Roboto, Ubuntu, sans-serif;
+}
+
+.acme-shell .dockview-theme-dark {
+  --dv-background-color: var(--acme-bg);
+  --dv-group-view-background-color: var(--acme-bg);
+  --dv-tabs-and-actions-container-background-color: var(--acme-panel);
+  --dv-activegroup-visiblepanel-tab-background-color: var(--acme-bg);
+  --dv-activegroup-hiddenpanel-tab-background-color: var(--acme-panel);
+  --dv-inactivegroup-visiblepanel-tab-background-color: var(--acme-bg);
+  --dv-inactivegroup-hiddenpanel-tab-background-color: var(--acme-panel);
+  --dv-separator-border: var(--acme-line);
+  --dv-paneview-header-border-color: var(--acme-line);
+  --dv-tabs-and-actions-container-height: 30px;
+  --dv-tabs-and-actions-container-font-size: 12px;
+}
+
+.acme-shell-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 36px;
+  padding: 0 8px;
+  border-bottom: 1px solid var(--acme-line);
+  background: var(--acme-panel);
+  flex: none;
+}
+.acme-shell-title {
+  font-weight: 600;
+  margin-right: 8px;
+}
+.acme-shell-spacer {
+  flex: 1;
+}
+.acme-shell-note {
+  color: var(--acme-dim);
+  font-size: 12px;
+}
+.acme-shell-bar button,
+.acme-shell-bar select,
+.acme-shell-actions button {
+  background: transparent;
+  color: var(--acme-text);
+  border: 1px solid var(--acme-line);
+  border-radius: 4px;
+  height: 24px;
+  padding: 0 8px;
+  font: inherit;
+  cursor: pointer;
+}
+.acme-shell-bar select option {
+  background: var(--acme-panel);
+}
+.acme-shell-bar button:hover,
+.acme-shell-actions button:hover {
+  background: var(--acme-line);
+}
+.acme-shell-name {
+  display: flex;
+  gap: 4px;
+}
+.acme-shell-name input {
+  background: var(--acme-bg);
+  color: var(--acme-text);
+  border: 1px solid var(--acme-accent);
+  border-radius: 4px;
+  height: 22px;
+  padding: 0 6px;
+  font: inherit;
+  width: 160px;
+}
+.acme-shell-dock {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+.acme-shell-dock > div {
+  height: 100%;
+}
+.acme-shell-conn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--acme-dim);
+  font-size: 12px;
+}
+.acme-shell-conn > span {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.acme-shell-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 100%;
+  padding: 0 4px;
+}
+.acme-shell-actions button {
+  border: none;
+  height: 22px;
+  padding: 0 5px;
+  color: var(--acme-dim);
+}
+.acme-shell-actions .acme-link-chip {
+  width: 12px;
+  height: 12px;
+  padding: 0;
+  border-radius: 3px;
+  border: 1px solid;
+  margin: 0 4px;
+}
+
+.acme-panel {
+  /* fills dockview's content area (below the tabs); its children may position against it */
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: var(--acme-bg, #131722);
+  color: var(--acme-text, #d1d4dc);
+}
+
+/* Generic widgets */
+.acme-empty {
+  padding: 16px;
+  color: var(--acme-dim, #787b86);
+}
+.acme-error {
+  padding: 16px;
+  color: #ef5350;
+}
+
+/* DataGrid */
+.acme-grid {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  font: 12px ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+}
+.acme-grid-scroll {
+  flex: 1;
+  overflow: auto;
+  min-height: 0;
+}
+.acme-grid-head {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--acme-panel, #1e222d);
+}
+.acme-grid-body {
+  position: sticky;
+  overflow: hidden;
+}
+.acme-grid-row {
+  display: flex;
+  white-space: nowrap;
+}
+.acme-grid-body .acme-grid-row {
+  cursor: default;
+}
+.acme-grid-body .acme-grid-row:hover {
+  background: #2a2e39;
+}
+.acme-grid-odd {
+  background: rgba(255, 255, 255, 0.02);
+}
+.acme-grid-hl,
+.acme-grid-body .acme-grid-hl:hover {
+  background: rgba(41, 98, 255, 0.25);
+}
+.acme-grid-cell {
+  flex: none;
+  box-sizing: border-box;
+  padding: 0 6px;
+  line-height: 22px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border-right: 1px solid var(--acme-line, #2a2e39);
+  position: relative;
+}
+.acme-grid-titles .acme-grid-cell {
+  line-height: 26px;
+  font-weight: 600;
+  color: var(--acme-text, #d1d4dc);
+  cursor: pointer;
+  user-select: none;
+  border-bottom: 1px solid var(--acme-line, #2a2e39);
+}
+.acme-grid-sort {
+  margin-left: 4px;
+  color: var(--acme-accent, #2962ff);
+  font-size: 10px;
+}
+.acme-grid-resize {
+  position: absolute;
+  right: -3px;
+  top: 0;
+  bottom: 0;
+  width: 6px;
+  cursor: col-resize;
+  z-index: 1;
+}
+.acme-grid-filters .acme-grid-cell {
+  padding: 1px 2px;
+  border-bottom: 1px solid var(--acme-line, #2a2e39);
+}
+.acme-grid-filters input {
+  width: 100%;
+  box-sizing: border-box;
+  height: 20px;
+  background: var(--acme-bg, #131722);
+  color: var(--acme-text, #d1d4dc);
+  border: 1px solid transparent;
+  border-radius: 2px;
+  font: inherit;
+  padding: 0 4px;
+}
+.acme-grid-filters input:focus {
+  outline: none;
+  border-color: var(--acme-accent, #2962ff);
+}
+.acme-grid-filters input::placeholder {
+  color: #4a4e59;
+}
+.acme-grid-foot {
+  flex: none;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  height: 22px;
+  padding: 0 8px;
+  color: var(--acme-dim, #787b86);
+  border-top: 1px solid var(--acme-line, #2a2e39);
+  font: 11px -apple-system, BlinkMacSystemFont, 'Trebuchet MS', Roboto, sans-serif;
+}
+.acme-grid-foot button {
+  background: none;
+  border: none;
+  color: var(--acme-accent, #2962ff);
+  cursor: pointer;
+  font: inherit;
+  padding: 0;
+}
+.acme-grid-err {
+  color: #ef5350;
+}
+
+/* pickers and forms */
+.acme-picker {
+  padding: 12px;
+  overflow: auto;
+  position: absolute;
+  inset: 0;
+}
+.acme-picker h3 {
+  margin: 0 0 8px;
+  font-size: 13px;
+  color: var(--acme-dim, #787b86);
+  font-weight: 500;
+}
+.acme-picker button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  color: var(--acme-text, #d1d4dc);
+  padding: 4px 6px;
+  border-radius: 3px;
+  cursor: pointer;
+  font: inherit;
+}
+.acme-picker button:hover {
+  background: var(--acme-line, #2a2e39);
+}
+.acme-picker small {
+  color: var(--acme-dim, #787b86);
+  margin-left: 6px;
+}
+.acme-form-panel {
+  position: absolute;
+  inset: 0;
+  overflow: auto;
+  padding: 10px 12px;
+  box-sizing: border-box;
+}
+.acme-form-panel select,
+.acme-form input:not([type='checkbox']) {
+  background: var(--acme-bg, #131722);
+  color: var(--acme-text, #d1d4dc);
+  border: 1px solid var(--acme-line, #2a2e39);
+  border-radius: 4px;
+  height: 26px;
+  padding: 0 6px;
+  font: inherit;
+}
+.acme-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+}
+.acme-form label {
+  display: grid;
+  grid-template-columns: 160px 1fr;
+  align-items: center;
+  gap: 8px;
+}
+.acme-form label small,
+.acme-form-actions small,
+.acme-form-doc {
+  color: var(--acme-dim, #787b86);
+}
+.acme-form-doc {
+  margin: 0;
+}
+.acme-form-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.acme-form-actions button,
+.acme-form-tables > button {
+  background: var(--acme-accent, #2962ff);
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  height: 26px;
+  padding: 0 14px;
+  cursor: pointer;
+  font: inherit;
+}
+.acme-form-actions button[type='button'],
+.acme-form-tables > button {
+  background: var(--acme-line, #2a2e39);
+  color: var(--acme-text, #d1d4dc);
+}
+.acme-form-tables > button.on {
+  outline: 1px solid var(--acme-accent, #2962ff);
+}
+.acme-form-result,
+.acme-form-error {
+  margin: 0;
+  padding: 8px;
+  background: var(--acme-panel, #1e222d);
+  border-radius: 4px;
+  max-height: 220px;
+  overflow: auto;
+  font: 12px ui-monospace, Consolas, monospace;
+}
+.acme-form-error {
+  color: #ef5350;
+}
+.acme-form-grid {
+  position: relative;
+  height: 320px;
+  margin-top: 6px;
+  border: 1px solid var(--acme-line, #2a2e39);
+}
+
+/* GraphPanel */
+.acme-graph {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+}
+.acme-graph-bar {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--acme-line, #2a2e39);
+  color: var(--acme-dim, #787b86);
+  font-size: 12px;
+}
+.acme-graph-bar button {
+  background: var(--acme-line, #2a2e39);
+  color: var(--acme-text, #d1d4dc);
+  border: none;
+  border-radius: 4px;
+  height: 22px;
+  padding: 0 10px;
+  cursor: pointer;
+  font: inherit;
+}
+.acme-graph-key i {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  margin-right: 4px;
+}
+.acme-graph-warn {
+  color: #ff9800;
+  font-weight: 400;
+}
+.acme-graph-canvas {
+  flex: 1;
+  overflow: auto;
+  min-height: 0;
+}
+.acme-graph-canvas text {
+  font-family: -apple-system, BlinkMacSystemFont, 'Trebuchet MS', Roboto, sans-serif;
+  pointer-events: none;
+}

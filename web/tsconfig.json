@@ -28,6 +28,12 @@
       ],
       "@acme/dh-bindings": [
         "../bindings/src/index.ts"
+      ],
+      "@acme/app-shell": [
+        "../shell/src/index.ts"
+      ],
+      "dockview-react": [
+        "../shell/node_modules/dockview-react"
       ]
     }
   },

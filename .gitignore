@@ -16,3 +16,4 @@ notebooks/
 # demo app data
 app.d/annotations.parquet
 app.d/alerts.parquet
+app.d/workspaces.parquet

@@ -4,6 +4,7 @@
  * ones that fire.
  */
 import type { dh as Dh } from '@deephaven/jsapi-types';
+import { safeClose } from './connection';
 import { newAnnotationId, type Alert, type AlertKind, type AlertOp, type AlertStatus, type AlertStore } from '@acme/chart-ext';
 
 const COLS = [
@@ -80,7 +81,7 @@ export function tableAlertStore(dh: typeof Dh, table: Dh.Table, owner: string): 
       await write({ ...prev, status: 'cancelled' });
     },
     close: () => {
-      sub.close();
+      safeClose(sub);
       listeners.clear();
     },
   };

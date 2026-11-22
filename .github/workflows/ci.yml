@@ -19,19 +19,26 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-      # each package has its own lockfile; the in-repo hosts compile ext/bindings/react from source
+      # each package has its own lockfile; the in-repo hosts compile ext/bindings/react/shell from source
+      # (shell first: the hosts resolve dockview-react from shell/node_modules)
       - name: Install
         run: |
-          for p in ext bindings react dh-plugin/js web; do (cd $p && npm ci --no-audit --no-fund); done
+          for p in ext bindings react shell desk dh-plugin/js web; do (cd $p && npm ci --no-audit --no-fund); done
       - name: Chart component (@acme/chart-ext)
         working-directory: ext
         run: npm run typecheck && npm test && npm run build
       - name: Deephaven bindings (@acme/dh-bindings)
         working-directory: bindings
         run: npm run typecheck && npm test && npm run build
-      - name: App shell (@acme/chart-react)
+      - name: Chart widgets (@acme/chart-react)
         working-directory: react
         run: npm run typecheck && npm test && npm run build
+      - name: App shell (@acme/app-shell)
+        working-directory: shell
+        run: npm run typecheck && npm test && npm run build
+      - name: Desk app
+        working-directory: desk
+        run: npm run build
       - name: deephaven.ui plugin bundle
         working-directory: dh-plugin/js
         run: npm run build

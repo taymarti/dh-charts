@@ -225,8 +225,9 @@ class Context:
 
     def hold(self, key, release: Callable[[], None]) -> bool:
         """Tie `release` to this stream under `key`: called by a `release` request with that key, when the
-        stream closes, or when its lease runs out. False (and release() called now) if the stream closed
-        meanwhile. Raises ApiError(limit) past the per-stream or per-user limit."""
+        stream closes, or when its lease runs out. A key held again on the same stream keeps one reference
+        and counts: it is released after as many `release` requests. False (and release() called now) if the
+        stream closed meanwhile. Raises ApiError(limit) past the per-stream or per-user limit."""
         return self._stream.hold(key, release)
 
     def holding(self) -> list:
@@ -349,6 +350,7 @@ class _Stream(MessageStream):
         self.api = api
         self.client = client
         self.held: dict = {}  # key -> release
+        self.counts: dict = {}  # key -> how many requests hold it (each `release` undoes one)
         self.user = "anonymous"
         self.verified = False
         self.closed = False
@@ -377,13 +379,18 @@ class _Stream(MessageStream):
                 closed = True
             else:
                 closed = False
-                if key in self.held:  # held already: one hold per key and stream
-                    release()  # drop the new reference; the stream keeps its first
+                if key in self.held:
+                    # held already: the stream keeps one reference to the node and counts the requests, so a
+                    # release meant for an earlier request (it can arrive after a newer request for the same
+                    # key, e.g. a page that unmounts and remounts) doesn't drop the newer one's hold
+                    release()
+                    self.counts[key] += 1
                     return True
                 if len(self.held) >= self.api.max_held_per_stream:
                     release()
                     raise ApiError(f"this stream holds {len(self.held)} items (limit {self.api.max_held_per_stream})", "limit")
                 self.held[key] = release
+                self.counts[key] = 1
                 user = self.user
         if closed:
             release()
@@ -395,7 +402,13 @@ class _Stream(MessageStream):
 
     def release(self, key) -> bool:
         with self.lock:
-            fn = self.held.pop(key, None)
+            if key not in self.held:
+                return False
+            self.counts[key] -= 1
+            if self.counts[key] > 0:
+                return True  # other requests on this stream still hold it
+            del self.counts[key]
+            fn = self.held.pop(key)
             user = self.user
         if fn is None:
             return False
@@ -422,6 +435,7 @@ class _Stream(MessageStream):
                 return
             self.closed = True
             held, self.held = self.held, {}
+            self.counts = {}
             user = self.user
         for fn in held.values():
             try:

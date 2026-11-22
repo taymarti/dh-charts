@@ -17,7 +17,7 @@
  *   ?widget=ws                              a deephaven.ui element (type deephaven.ui.Element, the default)
  *   ?widget=chart_ES&type=deephaven.plot.tradingview_lightweight.TvlChart
  *
- * Or a chart from table data only, our own LWC chart (front-end group C; see RawChart.tsx):
+ * Or a chart from table data only, our own LWC chart (front-end group C; see @acme/app-shell's chart/RawChart.tsx):
  *   ?raw=bars_1m&sym=ES&studies=EMA_20,BB_20_2_Upper,BB_20_2_Lower
  *   ?workspace&sym=ES                       the same with the TradingView-style toolbar (@acme/chart-react)
  *   ?workspace&api                          ... with charts from the server's chart API (any resolution, spreads,
@@ -28,25 +28,16 @@
 import { useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { useConnection } from '@deephaven/app-utils';
 import { useApi } from '@deephaven/jsapi-bootstrap';
-import type { dh as Dh } from '@deephaven/jsapi-types';
 import { WidgetView, isWidgetPlugin, usePlugins } from '@deephaven/plugin';
 // deephaven.ui elements need a FiberProvider above them (Deephaven's own Dashboard adds one); @deephaven/dashboard
 // does not export it from its index, so import its module directly
 import { FiberProvider } from '@deephaven/dashboard/dist/useFiber.js';
-import {
-  attachTvlExtensions,
-  browserOwner,
-  defaultExtensions,
-  providePageAlertStore,
-  providePageAnnotationStore,
-  setPageSessions,
-  showAlertToasts,
-  type ExtensionName,
-  type SessionSpec,
-} from '@acme/chart-ext';
-import { subscribeRows, tableAlertStore, tableAnnotationStore } from '@acme/dh-bindings';
+import { attachTvlExtensions, browserOwner, defaultExtensions, type ExtensionName } from '@acme/chart-ext';
+import { adoptConnection } from '@acme/dh-bindings';
 import { LinkProvider, createLinkBus, type ToolbarValue } from '@acme/chart-react';
-import { RawChart, RawWorkspace } from './RawChart';
+// group C's chart lives in the app shell; it takes the session from context, so this app (Deephaven's own
+// bootstrap) provides one over the bootstrap's connection
+import { DeephavenProvider, RawChart, RawWorkspace, usePageStores } from '@acme/app-shell';
 
 const TVL_TYPE = 'deephaven.plot.tradingview_lightweight.TvlChart';
 const SYMS = ['ES', 'NQ', 'RTY', 'YM', 'ZN', 'ZB', 'ZF', 'ZT', 'CL', 'NG', 'GC', 'SI', '6E', '6J', 'UST10', 'BUND'];
@@ -64,85 +55,6 @@ const ALERTS = q.get('alerts') ?? 'chart_alerts';
 /** the time zone our own charts show (group C): local (as Deephaven's chart does), UTC, or an IANA zone */
 const TZ = q.get('tz') ?? 'local';
 const EXT = (q.get('ext') ?? 'sync,lines,sessions,draw,alerts').split(',').filter(Boolean) as ExtensionName[];
-
-/**
- * Provide the page's annotation store from the published annotations table, if the server has one:
- * persistent price lines (and later drawings) on every chart the page's extensions reach.
- */
-function usePageAnnotations() {
-  const dh = useApi();
-  const connection = useConnection();
-  useEffect(() => {
-    let closed = false;
-    let release = () => {};
-    connection
-      .getObject({ type: dh.VariableType.TABLE, name: ANNOTATIONS } as never)
-      .then(obj => {
-        const t = obj as Dh.Table;
-        if (closed) return t.close();
-        const store = tableAnnotationStore(dh, t, USER);
-        const unprovide = providePageAnnotationStore(store);
-        release = () => {
-          unprovide();
-          store.close();
-          t.close();
-        };
-      })
-      .catch(() => {}); // no annotations table on this server: lines stay unsaved
-    return () => {
-      closed = true;
-      release();
-    };
-  }, [dh, connection]);
-  usePageAlertsAndSessions();
-}
-
-/**
- * The page's alert store (alert lines, context-menu alerts, a toast when one of USER's alerts fires)
- * from the published alerts table, and the session calendar from the published `sessions` table.
- */
-export function usePageAlertsAndSessions() {
-  const dh = useApi();
-  const connection = useConnection();
-  useEffect(() => {
-    let closed = false;
-    const releases: Array<() => void> = [];
-    const open = (name: string, use: (t: Dh.Table) => () => void) =>
-      connection
-        .getObject({ type: dh.VariableType.TABLE, name } as never)
-        .then(obj => {
-          const t = obj as Dh.Table;
-          if (closed) return t.close();
-          const stop = use(t);
-          releases.push(() => {
-            stop();
-            t.close();
-          });
-        })
-        .catch(() => {}); // not published on this server
-    void open(ALERTS, t => {
-      const store = tableAlertStore(dh, t, USER);
-      const unprovide = providePageAlertStore(store);
-      const stopToasts = showAlertToasts(store);
-      return () => {
-        stopToasts();
-        unprovide();
-        store.close();
-      };
-    });
-    void open('sessions', t =>
-      subscribeRows(dh, t, ['Sym', 'Spec'], rows => {
-        const map: Record<string, SessionSpec> = {};
-        for (const r of rows) map[String(r.Sym)] = JSON.parse(String(r.Spec));
-        setPageSessions(map);
-      }),
-    );
-    return () => {
-      closed = true;
-      releases.forEach(r => r());
-    };
-  }, [dh, connection]);
-}
 
 function Chart({ name }: { name: string }) {
   const connection = useConnection();
@@ -178,7 +90,7 @@ function SingleWidget({ name, type }: { name: string; type: string }) {
   const fetch = useMemo(() => () => connection.getObject({ type, name } as never), [connection, name, type]);
   const root = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => attachTvlExtensions(root.current!, defaultExtensions(EXT)), []);
-  usePageAnnotations();
+  usePageStores(USER, { annotations: ANNOTATIONS, alerts: ALERTS });
   return (
     <div ref={root} className="single">
       <FiberProvider>
@@ -189,6 +101,18 @@ function SingleWidget({ name, type }: { name: string; type: string }) {
 }
 
 export default function App() {
+  const dh = useApi();
+  const connection = useConnection();
+  // never closed: the connection is the bootstrap's
+  const session = useMemo(() => adoptConnection(dh, connection), [dh, connection]);
+  return (
+    <DeephavenProvider session={session}>
+      <Page />
+    </DeephavenProvider>
+  );
+}
+
+function Page() {
   if (RAW) {
     const studies = (q.get('studies') ?? 'EMA_20').split(',').filter(Boolean);
     return (
@@ -207,7 +131,7 @@ export default function App() {
 
 /** Group C's workspace, with the page's alert store and session calendar from the published tables. */
 function RawWorkspacePage({ initial }: { initial: ToolbarValue }) {
-  usePageAlertsAndSessions();
+  usePageStores(USER, { annotations: null, alerts: ALERTS });
   const api = q.has('api') ? q.get('api') || 'chart_api' : null;
   // the page's link bus: the watchlist and the chart share the symbol in group "red"
   const bus = useMemo(() => createLinkBus(), []);
@@ -223,7 +147,7 @@ function Grid() {
   const root = useRef<HTMLDivElement>(null);
   // a layout effect runs before the charts' own effects create them, so no "ready" event is missed
   useLayoutEffect(() => attachTvlExtensions(root.current!, defaultExtensions(EXT)), []);
-  usePageAnnotations();
+  usePageStores(USER, { annotations: ANNOTATIONS, alerts: ALERTS });
   return (
     <div ref={root} className="grid" style={{ gridTemplateColumns: `repeat(${cols}, 1fr)` }}>
       {SYMS.slice(0, N).map(s => (

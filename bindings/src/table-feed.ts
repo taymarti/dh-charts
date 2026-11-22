@@ -11,6 +11,7 @@
  * date wrappers are unwrapped to numbers; nulls stay null (gaps).
  */
 import type { dh as Dh } from '@deephaven/jsapi-types';
+import { safeClose } from './connection';
 import { applyChanges, type FeedListener, type FeedRow, type SeriesFeed } from '@acme/chart-ext';
 
 const num = (x: unknown): number | null => {
@@ -73,7 +74,7 @@ export function tableFeed(dh: typeof Dh, table: Dh.Table, columns: string[], tim
           listener.error?.(e);
         }
       });
-      return () => sub.close();
+      return () => safeClose(sub);
     },
   };
 }

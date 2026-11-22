@@ -64,7 +64,9 @@ Findings from building it:
 | Path | What it is |
 |---|---|
 | `ext/` | **`@acme/chart-ext`** (layer 1, the chart component): our features as LWC plugins, `SeriesFeed` and `bindFeed` (any data source drawn as price + studies in panes), time-zone and tick-size formats, the store interfaces, and the hook that applies the plugins to Deephaven's charts. No Deephaven dependency. In-repo hosts compile its source (a Vite alias); `npm pack` builds the distributable package (`dist/`), published as a tarball in [lwc-vendor](https://github.com/taymarti/lwc-vendor) `acme/` |
-| `bindings/` | **`@acme/dh-bindings`** (layer 2): the chart component's interfaces over Deephaven: `tableAnnotationStore`, `tableAlertStore`, `subscribeRows`, `tableFeed` (a `SeriesFeed` over a table), `ApiClient` / `openApi` (the request API) and `requestChart` |
+| `bindings/` | **`@acme/dh-bindings`** (layer 2): the chart component's interfaces over Deephaven: `tableAnnotationStore`, `tableAlertStore`, `subscribeRows`, `tableFeed` (a `SeriesFeed` over a table), `ApiClient` / `openApi` (the request API) and `requestChart`; and since 0.2.0 the connection itself: `connect` (JS API loaded from the server, connection state, shared table leases) or `adoptConnection` (over Deephaven's bootstrap), and `TableViewport` (a grid's server-side window: rows in view, size, sort, quick filters) |
+| `shell/` | **`@acme/app-shell`** (layer 3): the app shell. `Shell` (dockable panels on dockview: tabs, splits, floating, pop-out, maximize; saved workspaces per user; a link group per panel), `DeephavenRoot` / `DeephavenProvider` and hooks (tables, rows, API clients, the published objects), `DataGrid` (any table, virtual scrolling, server-side sort and filters), and generic panels: chart (group C's `RawWorkspace`, moved here from `web/`), watchlist, table, request form (from an API's `describe`), update graph |
+| `desk/` | **The desk app** (scenario S2/S3): the shell on our own connection, no `@deephaven` React packages. Reconnects by itself when the server restarts |
 | `web/` | **React host** (pattern A): Deephaven's own chart component in a standalone React app, through `WidgetView`. The plugin's JS comes from the server, so there is nothing to vendor and no npm package |
 | `react/` | **`@acme/chart-react`** (layer 3, the app shell): `ChartToolbar`, `ChartLegend`, `Watchlist`, `AlertsPanel`, and the link bus (`createLinkBus`, `LinkProvider`, `useLink`): values widgets share per link group. Styles are injected by the component (no CSS build). In-repo hosts compile its source; `npm pack` builds the distributable package |
 | `dh-plugin/` | **`dh-chart-ext`**: a Python package that registers a JS plugin with the Deephaven server and brings `@acme/chart-ext` to every Deephaven web UI, deephaven.ui dashboards included |
@@ -72,7 +74,7 @@ Findings from building it:
 | `dh-plugin/src/dh_chart_ext/` `data.py` `charts.py` `workspace.py` | The Python layers L0, L1 and L2 |
 | `dh-plugin/src/dh_chart_ext/` `rpc.py` `tokens.py` | The request API framework: handlers registered on an `rpc.Api` (type `acme.Api`), JSON over one plugin stream per client, parameter validation from type hints, `describe`, identity (`hello` with signed tokens), holds with leases and limits |
 | `dh-plugin/src/dh_chart_ext/` `cache.py` `nodes.py` `api.py` `instruments.py` | Charts on demand: shared, reference-counted DAG nodes (`NodeCache` with limits and a live metrics table, `ChartNodes`), the chart handlers (`api.ChartApi`, an `rpc.Api`), tick sizes per instrument |
-| `web/src/chartApi.ts` | The React hook for the page's API client (`useChartApi`) |
+| `dh-plugin/src/dh_chart_ext/` `workspaces.py` `introspection.py` | The shell's server side, as methods on any `rpc.Api`: saved workspaces per user (a keyed input table, on disk), and the update graph for the graph panel (deephaven-compare's `introspect`) |
 | `tests/`, `*/test/`, `.github/workflows/ci.yml` | pytest protocol tests against a live server, vitest unit tests per package, and CI running both |
 | `docs/component-map.md` | Every piece, built or plausible, by layer (chart component, Deephaven bindings, app shell, server framework), with scenarios and open decisions |
 | `app.d/` | Demo app: the benchmark's 16 synthetic feeds, the L0 standard set, `chart_ES` (L1), `ws` and `ws_grid` (L2) |
@@ -306,6 +308,10 @@ The demo (`app.d`), per front-end group:
   alerts, sessions), `?workspace&api&sym=NQ` for charts from the chart API (any interval, spreads, RSI and
   volume panes, compare; `&tz=America/Chicago` for the exchange's time), or one
   bare chart: `?raw=bars_1m&sym=ES&studies=EMA_20,BB_20_2_Upper,BB_20_2_Lower`
+- C, the desk app (own shell): `npm --prefix shell install; npm --prefix desk install; npm --prefix desk run dev`,
+  then `http://localhost:4060/?user=alice`: chart, watchlist, `chart_nodes` and a request form, docked;
+  "+ Panel" adds charts, tables (any published one), forms and the update graph; panels in the same link group
+  (the chip in each header) follow one symbol; Save / Save as… keep workspaces on the server per user
 - The chart API from Python: `pydeephaven` `Session.plugin_client(session.exportable_objects["chart_api"])`,
   then JSON requests on its `req_stream` (the browser console has `window.chartApi` on an `&api` page)
 
@@ -319,7 +325,7 @@ dashboard); `perf/README.md` has the benchmark.
 
 ```powershell
 # unit tests, no server (each JS package; Python's token checks)
-npm --prefix ext test; npm --prefix bindings test; npm --prefix react test
+npm --prefix ext test; npm --prefix bindings test; npm --prefix react test; npm --prefix shell test
 .venv\Scripts\python -m pytest tests/test_tokens.py
 # protocol tests against the running demo server (DH_TEST_PORT, default 10040); DH_SLOW=1 adds the 2-minute lease test
 .venv\Scripts\python -m pytest tests
@@ -332,10 +338,12 @@ on a runner (with 1 day of history) and runs the protocol tests against it.
 
 See `docs/component-map.md` for every piece by layer and the planning order. Done from it so far: the
 layer split, `SeriesFeed`, panes, compare, time zone and tick size in group C, the request API framework
-with identity and limits, the link bus, tests and CI.
+with identity and limits, the link bus, tests and CI; and with decisions 1–3 taken (our own shell,
+dockview, our own grid): the connection module, the app shell with saved workspaces, the generic table,
+forms from `describe`, and a first graph explorer. The component map's "Gaps found" lists what that showed.
 
 1. Persistence (P) is done: price lines, drawings, workspace settings. Owner is client-supplied on Community; use authenticated users + row ACLs on Enterprise.
-2. The open decisions in the component map (app shell, layout library, generic table) gate layouts, workspaces and the generic widgets.
+2. The gaps the shell showed (component map): the remaining decisions (handler registry shape, identity, where the framework lives) and the shell's own follow-ups.
 3. More drawing tools on the same framework: rectangle, Fibonacci retracement, vertical line, text note. Drawing points off the data (weekend gaps) drift, since off-data times use a linear axis.
 4. Propose the fork's two changes upstream, along with the per-pane scale mode and null-as-gap
    issues.

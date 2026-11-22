@@ -14,6 +14,7 @@
  * the lease.
  */
 import type { dh as Dh } from '@deephaven/jsapi-types';
+import { safeClose } from './connection';
 
 export const API_TYPE = 'acme.Api';
 
@@ -83,17 +84,17 @@ export class ApiClient {
     try {
       msg = JSON.parse(text);
     } catch {
-      refs.forEach(r => r.close());
+      refs.forEach(r => safeClose(r));
       return;
     }
     const p = msg.id != null ? this.pending.get(msg.id) : undefined;
     if (!p) {
-      refs.forEach(r => r.close()); // nobody is waiting: don't leak the exports
+      refs.forEach(r => safeClose(r)); // nobody is waiting: don't leak the exports
       return;
     }
     this.pending.delete(msg.id!);
     if (msg.error != null) {
-      refs.forEach(r => r.close());
+      refs.forEach(r => safeClose(r));
       p.reject(new ApiError(msg.error, msg.code));
     } else p.resolve({ result: msg.result, refs });
   }
@@ -131,7 +132,7 @@ export class ApiClient {
     this.off();
     this.pending.forEach(p => p.reject(new ApiError('the API stream is closed', 'closed')));
     this.pending.clear();
-    this.widget.close();
+    safeClose(this.widget);
   }
 }
 
