@@ -4,3 +4,6 @@ deephaven-plugin-ui==0.42.2
 deephaven-plugin-plotly-express==0.20.1
 # The TradingView plugin: install our fork's build (README, "The fork"), 0.1.0+acme.1.
 # Then: pip install -e dh-plugin
+# The Python client (tests, scripts). bitstring 5 removed BitArray(int), which pydeephaven 42.6 calls.
+pydeephaven==42.6
+bitstring<5
