@@ -282,6 +282,9 @@ python -m build --wheel plugins/tradingview-lightweight
 .venv\Scripts\python -m pip install --force-reinstall --no-deps <path to the wheel>
 ```
 
+Built wheels of both Python packages, `dh-chart-ext` and the fork's plugin, are in
+[lwc-vendor](https://github.com/taymarti/lwc-vendor) `taymarti/python-packages/`, for environments that can't build them.
+
 ## Run it
 
 Environments whose package mirror lacks the Lightweight Charts packages: run

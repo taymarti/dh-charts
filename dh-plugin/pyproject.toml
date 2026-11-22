@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "dh-chart-ext"
 version = "0.1.0"
-description = "Brings @acme/chart-ext (our Lightweight Charts plugins) to Deephaven TradingView charts in deephaven.ui"
+description = "Charts and an app framework on Deephaven: @acme/chart-ext for Deephaven's TradingView charts, chart data and nodes on demand, a request API (rpc), saved workspaces, the update-graph explorer, and backtests"
 requires-python = ">=3.10"
 license = "Apache-2.0"
 license-files = ["LICENSE", "NOTICE"]
@@ -19,3 +19,7 @@ registration_cls = "dh_chart_ext._register:ChartExtRegistration"
 packages = ["src/dh_chart_ext"]
 # the JS build output is generated (js/: npm run build), not committed; ship it in the wheel
 artifacts = ["src/dh_chart_ext/_js/dist/*"]
+
+# the CEP stand-in the backtest service launches (cep_sim/ at the repo root), inside the package
+[tool.hatch.build.targets.wheel.force-include]
+"../cep_sim/runner.py" = "dh_chart_ext/_cep_sim/runner.py"

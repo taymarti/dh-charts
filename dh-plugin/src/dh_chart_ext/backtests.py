@@ -63,7 +63,10 @@ from .rpc import Api, ApiError, Reply
 from .sandbox import check_strategy
 from .store import epoch_ms, persistent_input_table
 
-RUNNER = pathlib.Path(__file__).resolve().parents[3] / "cep_sim" / "runner.py"
+# the CEP stand-in: shipped in the wheel as dh_chart_ext/_cep_sim/runner.py; in a source checkout, the repo's cep_sim/
+_HERE = pathlib.Path(__file__).resolve().parent
+RUNNER = next((p for p in (_HERE / "_cep_sim" / "runner.py", _HERE.parents[2] / "cep_sim" / "runner.py") if p.exists()),
+              _HERE / "_cep_sim" / "runner.py")
 
 OUTPUTS = {
     "trades": ({"Timestamp": dtypes.Instant, "Sym": dtypes.string, "Side": dtypes.string, "Qty": dtypes.double,
