@@ -33,7 +33,8 @@ function App() {
 | `DeephavenRoot`, `DeephavenProvider`, `useDeephaven` | the session; `DeephavenRoot` connects, and when the server drops the session (a restart) connects again and remounts the app |
 | `useTableLease`, `useOwnTable`, `useRows`, `useApiClient`, `usePublished`, `useConnectionState` | hooks: a shared or private table handle, live rows of a small table, one API stream per page and name, the server's published objects, connection state |
 | `DataGrid` | any table: virtual scrolling (only the visible rows come from the server), server-side sort (shift-click for more columns) and quick filters, column resize, row click and highlight |
-| `chartPanel`, `watchlistPanel`, `tablePanel`, `requestPanel`, `graphPanel` | generic panels: a chart with toolbar and legend, a watchlist, any published table, a form for any method of a request API (from `describe`), the app's update graph |
+| `chartPanel`, `watchlistPanel`, `tablePanel`, `requestPanel`, `graphPanel`, `seriesPanel` | generic panels: a chart with toolbar and legend, a watchlist, any published table, a form for any method of a request API (from `describe`), the app's update graph, line charts of any table with a time column (wide, or long split by columns, a pane per symbol) |
+| `strategiesPanel` | a trader's strategies (editor with the server's checks, save, delete), backtest runs with progress and P&L, and each run's results as a tab group (`dh_chart_ext.backtests`) |
 | `RawChart`, `RawWorkspace`, `usePageStores` | front-end group C's chart and the page's chart stores (annotations, alerts, sessions) |
 
 Dependencies: `dockview-react` 8.8. Peer dependencies: the other `@acme` packages, `@deephaven/jsapi-types` (types),

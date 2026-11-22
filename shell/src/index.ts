@@ -8,6 +8,7 @@
  *   chartPanel, watchlistPanel,        generic panel kinds
  *   tablePanel, requestPanel,
  *   graphPanel                         ... and the app's update graph (introspect)
+ *   seriesPanel, strategiesPanel       line charts of any table; strategies and backtests (dh_chart_ext.backtests)
  *   RawChart, RawWorkspace,            front-end group C's chart, and the page's chart stores
  *   usePageStores
  *
@@ -16,7 +17,7 @@
 import './shell.css';
 
 export { Shell, type AddPanel, type ShellProps } from './Shell';
-export { definePanel, titleOf, type PanelKind, type PanelProps } from './registry';
+export { definePanel, titleOf, type PanelKind, type PanelPlacement, type PanelProps } from './registry';
 export {
   LAYOUT_VERSION,
   apiWorkspaceStore,
@@ -51,6 +52,8 @@ export {
   type RequestPanelParams,
   type TablePanelParams,
 } from './panels';
+export { seriesPanel, oneRowPerTime, type SeriesPanelParams } from './series/SeriesPanel';
+export { strategiesPanel, type RunInfo } from './backtest/StrategiesPanel';
 export { graphPanel, layoutGraph, type GraphNode, type GraphReply } from './graph/GraphPanel';
 export { RawChart, RawWorkspace, type ChartData } from './chart/RawChart';
 export { usePageStores, type PageStoreTables } from './chart/page-stores';

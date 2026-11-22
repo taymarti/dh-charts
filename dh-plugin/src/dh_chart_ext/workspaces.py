@@ -28,7 +28,7 @@ from deephaven import dtypes, new_table
 from deephaven.column import datetime_col, string_col
 
 from .rpc import Api, ApiError
-from .store import persistent_input_table
+from .store import epoch_ms, persistent_input_table
 
 COLUMNS = {"User": dtypes.string, "Name": dtypes.string, "Layout": dtypes.string, "SavedAt": dtypes.Instant}
 KEYS = ["User", "Name"]
@@ -43,10 +43,8 @@ class WorkspaceStore:
         self.table = persistent_input_table(COLUMNS, KEYS, path)
         self._lock = threading.Lock()
         self._by_user: dict[str, dict[str, tuple[str, int]]] = {}  # user -> name -> (layout JSON, saved_at ms)
-        for row in self.table.iter_dict():
-            ns = row["SavedAt"]
-            ms = int(ns.timestamp() * 1000) if hasattr(ns, "timestamp") else 0
-            self._by_user.setdefault(row["User"], {})[row["Name"]] = (row["Layout"], ms)
+        for row in self.table.iter_dict():  # Instants come back as Java Instants (42.6)
+            self._by_user.setdefault(row["User"], {})[row["Name"]] = (row["Layout"], epoch_ms(row["SavedAt"]))
 
     # direct use (an app's own code, tests)
 

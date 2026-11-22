@@ -57,6 +57,23 @@ def annotation_table(path: Optional[str | pathlib.Path] = None) -> InputTable:
     return persistent_input_table(COLUMNS, KEYS, path)
 
 
+def epoch_ms(v) -> int:
+    """Milliseconds since the epoch from an Instant column value as Table.iter_dict gives it (a Java Instant
+    on 42.6), a datetime, or a numpy datetime64; 0 for null."""
+    if v is None:
+        return 0
+    if hasattr(v, "toEpochMilli"):
+        return int(v.toEpochMilli())
+    if hasattr(v, "timestamp"):
+        return int(v.timestamp() * 1000)
+    try:
+        import numpy as np
+
+        return int(np.datetime64(v, "ms").astype("int64"))
+    except Exception:  # noqa: BLE001
+        return 0
+
+
 def persistent_input_table(columns: dict, keys: list, path: Optional[str | pathlib.Path] = None) -> InputTable:
     """A keyed input table; with `path`, loaded from a parquet snapshot and written back on every change."""
     t = input_table(col_defs=columns, key_cols=keys)

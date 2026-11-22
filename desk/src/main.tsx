@@ -16,6 +16,8 @@ import {
   apiWorkspaceStore,
   chartPanel,
   graphPanel,
+  seriesPanel,
+  strategiesPanel,
   localWorkspaceStore,
   requestPanel,
   tablePanel,
@@ -62,6 +64,8 @@ function App() {
       tablePanel(),
       requestPanel({ api: API, user: USER }),
       graphPanel({ api: API, user: USER }),
+      seriesPanel(),
+      strategiesPanel({ api: API, user: USER }),
     ]);
     setStore(client ? apiWorkspaceStore(client) : localWorkspaceStore());
   }, [symbols, client, error]);

@@ -74,6 +74,7 @@ Findings from building it:
 | `dh-plugin/src/dh_chart_ext/` `data.py` `charts.py` `workspace.py` | The Python layers L0, L1 and L2 |
 | `dh-plugin/src/dh_chart_ext/` `rpc.py` `tokens.py` | The request API framework: handlers registered on an `rpc.Api` (type `acme.Api`), JSON over one plugin stream per client, parameter validation from type hints, `describe`, identity (`hello` with signed tokens), holds with leases and limits |
 | `dh-plugin/src/dh_chart_ext/` `cache.py` `nodes.py` `api.py` `instruments.py` | Charts on demand: shared, reference-counted DAG nodes (`NodeCache` with limits and a live metrics table, `ChartNodes`), the chart handlers (`api.ChartApi`, an `rpc.Api`), tick sizes per instrument |
+| `dh-plugin/src/dh_chart_ext/` `backtests.py` `sandbox.py`, `cep_sim/` | Backtests from the desk: strategies per user, runs in their own process (`cep_sim/runner.py` stands in for the CEP) streaming into per-run tables, the static checks on strategy code; `cep_sim/README.md` has the contract the real CEP keeps |
 | `dh-plugin/src/dh_chart_ext/` `workspaces.py` `introspection.py` | The shell's server side, as methods on any `rpc.Api`: saved workspaces per user (a keyed input table, on disk), and the update graph for the graph panel (deephaven-compare's `introspect`) |
 | `tests/`, `*/test/`, `.github/workflows/ci.yml` | pytest protocol tests against a live server, vitest unit tests per package, and CI running both |
 | `docs/component-map.md` | Every piece, built or plausible, by layer (chart component, Deephaven bindings, app shell, server framework), with scenarios and open decisions |
@@ -311,7 +312,9 @@ The demo (`app.d`), per front-end group:
 - C, the desk app (own shell): `npm --prefix shell install; npm --prefix desk install; npm --prefix desk run dev`,
   then `http://localhost:4060/?user=alice`: chart, watchlist, `chart_nodes` and a request form, docked;
   "+ Panel" adds charts, tables (any published one), forms and the update graph; panels in the same link group
-  (the chip in each header) follow one symbol; Save / Save as… keep workspaces on the server per user
+  (the chip in each header) follow one symbol; Save / Save as… keep workspaces on the server per user.
+  "+ Panel → Strategies": write a strategy (or start from the example), save it, Run backtest: its trades,
+  orders, positions, plots, equity and price charts open as tabs in a floating window and fill as the run goes
 - The chart API from Python: `pydeephaven` `Session.plugin_client(session.exportable_objects["chart_api"])`,
   then JSON requests on its `req_stream` (the browser console has `window.chartApi` on an `&api` page)
 

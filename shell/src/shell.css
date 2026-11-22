@@ -426,3 +426,206 @@
   font-family: -apple-system, BlinkMacSystemFont, 'Trebuchet MS', Roboto, sans-serif;
   pointer-events: none;
 }
+
+/* SeriesPanel */
+.acme-series-legend {
+  position: absolute;
+  top: 6px;
+  left: 8px;
+  z-index: 3;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  font-size: 11px;
+  color: var(--acme-text, #d1d4dc);
+  pointer-events: none;
+}
+.acme-series-legend i {
+  display: inline-block;
+  width: 10px;
+  height: 3px;
+  margin-right: 4px;
+  vertical-align: middle;
+}
+
+/* StrategiesPanel */
+.acme-strategies {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  font-size: 12px;
+}
+.acme-strategies aside {
+  width: 170px;
+  flex: none;
+  border-right: 1px solid var(--acme-line, #2a2e39);
+  overflow: auto;
+  padding: 6px;
+}
+.acme-strategies aside button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  color: var(--acme-text, #d1d4dc);
+  padding: 5px 6px;
+  border-radius: 3px;
+  cursor: pointer;
+  font: inherit;
+}
+.acme-strategies aside button:hover {
+  background: var(--acme-line, #2a2e39);
+}
+.acme-strategies aside button.on {
+  background: rgba(41, 98, 255, 0.25);
+}
+.acme-strategies aside .acme-strat-new {
+  color: var(--acme-accent, #2962ff);
+  margin-bottom: 6px;
+}
+.acme-strategies section {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.acme-strat-bar {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--acme-line, #2a2e39);
+}
+.acme-strat-bar input,
+.acme-strat-bar button,
+.acme-strat-runs button {
+  background: var(--acme-bg, #131722);
+  color: var(--acme-text, #d1d4dc);
+  border: 1px solid var(--acme-line, #2a2e39);
+  border-radius: 4px;
+  height: 24px;
+  padding: 0 8px;
+  font: inherit;
+  cursor: pointer;
+}
+.acme-strat-bar input {
+  width: 180px;
+  cursor: text;
+}
+.acme-strat-bar .acme-strat-run {
+  background: var(--acme-accent, #2962ff);
+  border-color: var(--acme-accent, #2962ff);
+  color: #fff;
+}
+.acme-strat-bar button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.acme-strat-note {
+  color: var(--acme-dim, #787b86);
+}
+.acme-strat-edit {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+.acme-strat-code,
+.acme-strat-params {
+  background: #0e1118;
+  color: #d1d4dc;
+  border: none;
+  resize: none;
+  font: 12px/1.5 ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  padding: 8px 10px;
+  tab-size: 4;
+  outline: none;
+}
+.acme-strat-code {
+  flex: 1;
+  min-width: 0;
+}
+.acme-strat-side {
+  width: 280px;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--acme-line, #2a2e39);
+  overflow: auto;
+}
+.acme-strat-side label {
+  padding: 6px 8px 2px;
+  color: var(--acme-dim, #787b86);
+}
+.acme-strat-params {
+  height: 140px;
+  flex: none;
+}
+.acme-strat-problems {
+  padding: 6px 8px;
+  color: #26a69a;
+}
+.acme-strat-problems.bad {
+  color: #ef5350;
+}
+.acme-strat-help {
+  padding: 4px 8px;
+  color: var(--acme-dim, #787b86);
+}
+.acme-strat-help pre {
+  font: 11px/1.45 ui-monospace, Consolas, monospace;
+  white-space: pre-wrap;
+  color: var(--acme-text, #d1d4dc);
+}
+.acme-strat-runs {
+  flex: none;
+  max-height: 34%;
+  overflow: auto;
+  border-top: 1px solid var(--acme-line, #2a2e39);
+}
+.acme-strat-runs table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.acme-strat-runs th,
+.acme-strat-runs td {
+  text-align: left;
+  padding: 3px 8px;
+  border-bottom: 1px solid var(--acme-line, #2a2e39);
+  white-space: nowrap;
+}
+.acme-strat-runs th {
+  color: var(--acme-dim, #787b86);
+  font-weight: 500;
+}
+.acme-strat-runs button {
+  height: 20px;
+  margin-right: 4px;
+}
+.acme-strat-runs .up {
+  color: #26a69a;
+}
+.acme-strat-runs .down {
+  color: #ef5350;
+}
+.acme-strat-runs .st-error {
+  color: #ef5350;
+}
+.acme-strat-runs .st-running,
+.acme-strat-runs .st-starting {
+  color: #ff9800;
+}
+.acme-strat-progress {
+  display: inline-block;
+  width: 80px;
+  height: 6px;
+  background: var(--acme-line, #2a2e39);
+  border-radius: 3px;
+  overflow: hidden;
+  vertical-align: middle;
+}
+.acme-strat-progress span {
+  display: block;
+  height: 100%;
+  background: var(--acme-accent, #2962ff);
+}

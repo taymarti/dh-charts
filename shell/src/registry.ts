@@ -20,8 +20,19 @@ export interface PanelProps<P extends object = Record<string, unknown>> {
   setTitle(title: string): void;
   /** the link group this panel is in (null: not linked); the user picks it in the panel's header */
   linkGroup: string | null;
-  /** open another panel, to the right of this one */
-  openPanel(kind: string, params?: Record<string, unknown>, title?: string): void;
+  /**
+   * Open another panel: by default to the right of this one; `where` places it relative to another panel
+   * (`within` adds a tab to its group). Returns the new panel's id (null if the kind is unknown).
+   */
+  openPanel(kind: string, params?: Record<string, unknown>, title?: string, where?: PanelPlacement): string | null;
+}
+
+export interface PanelPlacement {
+  /** the panel to place it next to (default: the one opening it) */
+  referencePanel?: string;
+  direction?: 'right' | 'left' | 'above' | 'below' | 'within';
+  /** a floating group over the layout instead, this share of the shell's size (e.g. 0.8) */
+  floating?: number;
 }
 
 export interface PanelKind<P extends object = any> {

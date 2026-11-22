@@ -40,7 +40,11 @@ export interface ShellProps {
   popoutUrl?: string;
 }
 
-export type AddPanel = (kind: string, params?: Record<string, unknown>, options?: { title?: string; position?: unknown }) => void;
+export type AddPanel = (
+  kind: string,
+  params?: Record<string, unknown>,
+  options?: { title?: string; position?: unknown; floating?: number },
+) => string | null;
 
 let nextId = 1;
 const newId = (kind: string) => `${kind}-${Date.now().toString(36)}-${(nextId++).toString(36)}`;
@@ -84,11 +88,25 @@ export function Shell({ kinds, store = null, defaultLayout, title, extra, bus: g
   const add: AddPanel = useCallback((kind, params = {}, options = {}) => {
     const api = apiRef.current;
     const k = kindsRef.current.find(x => x.kind === kind);
-    if (!api || !k) return;
+    if (!api || !k) return null;
     const p: StoredParams = { ...(k.defaultParams ?? {}), ...params };
     // the header shows a link chip for panels with __link; a kind that can't link has none
     if (!('__link' in p) && k.linkable !== false) p.__link = k.defaultLink === undefined ? 'red' : k.defaultLink;
-    api.addPanel({ id: newId(kind), component: kind, title: options.title ?? titleOf(k, p), params: p, ...(options.position ? { position: options.position as never } : {}) });
+    const id = newId(kind);
+    const where = options.floating
+      ? {
+          floating: {
+            width: Math.round(api.width * options.floating),
+            height: Math.round(api.height * options.floating),
+            x: Math.round((api.width * (1 - options.floating)) / 2),
+            y: Math.round((api.height * (1 - options.floating)) / 2),
+          },
+        }
+      : options.position
+        ? { position: options.position }
+        : {};
+    api.addPanel({ id, component: kind, title: options.title ?? titleOf(k, p), params: p, ...(where as object) });
+    return id;
   }, []);
 
   const apply = useCallback(
@@ -307,7 +325,12 @@ function PanelHost({ kind, dock, add, autosave }: { kind: PanelKind; dock: IDock
     setParams,
     setTitle: t => dock.api.setTitle(t),
     linkGroup: __link ?? null,
-    openPanel: (k, p, title) => add(k, p, { title, position: { referencePanel: dock.api.id, direction: 'right' } }),
+    openPanel: (k, p, title, where) =>
+      add(k, p, {
+        title,
+        floating: where?.floating,
+        position: { referencePanel: where?.referencePanel ?? dock.api.id, direction: where?.direction ?? 'right' },
+      }),
   };
   const C = kind.component;
   return (

@@ -17,6 +17,8 @@ Published fields, one per layer and front end (README.md):
   chart_nodes                          the node cache, live: one row per shared node
   (chart_api also answers `graph`: the update graph for the desk's graph explorer, via deephaven-compare's
    introspect module when it is checked out next to this repo, or DH_INTROSPECT_DIR)
+  backtest_runs, bt<N>_*               backtests from the desk (dh_chart_ext.backtests; methods strategy_*, backtest_*):
+                                       every run, and each run's trades, orders, positions, signals and equity
   workspaces                           saved app-shell workspaces per user (dh_chart_ext.workspaces, through chart_api);
                                        app.d/workspaces.parquet
   instruments                          tick size and name per symbol
@@ -46,6 +48,7 @@ from dh_chart_ext.charts import price_chart  # noqa: E402
 from dh_chart_ext.data import EMA, RSI, Bollinger, Volume, for_symbol  # noqa: E402
 from dh_chart_ext.store import annotation_table  # noqa: E402
 from dh_chart_ext.workspaces import WorkspaceStore  # noqa: E402
+from dh_chart_ext.backtests import BacktestService  # noqa: E402
 from dh_chart_ext.workspace import ChartSource, chart_workspace  # noqa: E402
 
 # History before the live feed, so charts can scroll back days: a random walk per symbol that ends
@@ -88,6 +91,12 @@ chart_nodes = source.nodes.cache.metrics_table()  # the shared nodes, live (Key,
 _workspaces = WorkspaceStore(path=_app_dir / "workspaces.parquet")
 _workspaces.register(chart_api)
 workspaces = _workspaces.table
+
+# Backtests from the desk: strategies per user (app.d/strategies.parquet), runs in their own process (the CEP
+# stand-in, cep_sim/runner.py), results streamed into bt<N>_* tables; backtest_runs lists every run
+_backtests = BacktestService(dh_port=int(os.environ.get("DH_PORT", "10040")), path=_app_dir / "strategies.parquet")
+_backtests.register(chart_api)
+backtest_runs = _backtests.runs
 
 # The graph explorer (method `graph`): deephaven-compare's introspect module, from DH_INTROSPECT_DIR or the
 # sibling checkout; skipped when it isn't there

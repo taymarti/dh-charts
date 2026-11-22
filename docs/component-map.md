@@ -93,6 +93,7 @@ Rules that keep the pieces reusable:
 | Automatic dashboards | a dashboard from an app with no UI code | ✅ deephaven.ui | `dhapp.ui.dashboard(app)` (X15) | the same from the catalog in the React shell |
 | Alerts panel | create, list, log | ✅ | `react/src/AlertsPanel.tsx` | more alert types; delivery (email, chat) |
 | Notifications | toasts, browser notifications | ✅ for alerts | `ext/src/alerts.ts` (`showAlertToasts`) | a general notification centre |
+| Strategy workbench | write, save and backtest strategies; results as tabs | ◐ v0 | the shell's `strategiesPanel` (editor with the server's checks, runs with progress, Open: trades, orders, positions, plots, equity, price charts in a floating tab group), `seriesPanel` | a real code editor (highlighting, completion); compare runs; deploy to a paper account and flip through live ones; trade markers on the price charts |
 | Trading widgets | order ticket | ◐ ticket only | `desk-app` `OrderTicket` | positions, orders, fills blotter, P&L; orders on the chart |
 | DAG explorer | browse the app's tables and graph, open any as a grid or chart | ◐ v0 | the shell's `graphPanel` (columns by depth, cost per cycle; named tables open in a table panel) over `dh_chart_ext/introspection.py` (method `graph`, cached) over deephaven-compare `introspect/` | grouping of wide fan-outs; search; live costs; open a node as a chart |
 | Theming, shortcuts, command palette, settings, undo | | ○ (house theme constants) | `charts.py`, `react/src/styles.ts` | one token set for chart and widgets; light theme; undo across widgets |
@@ -115,6 +116,7 @@ Rules that keep the pieces reusable:
 | History | lookback paging; demo history; replay | ◐ | `data.Lookback`, `app.d/demo.py`; `dhfw` replay mode, `TableReplayer` (X6) | Parquet or a historical store joined to live; base bars kept on disk |
 | Study library | registry of study types with parameters | ✅ six studies | `data.STUDY_TYPES` | more studies; user-defined studies (formulas or Python), sandboxed |
 | Stores | annotations, alerts, settings; snapshots, daily partitions, logs, editable state | ✅ | `dh_chart_ext/store.py`, `alerts.py`; `dhapp.store` (four kinds, Community and Enterprise) | one keyed-store helper for both repos; audit history of control writes |
+| Backtest service | strategies per user; runs in their own process (the CEP) streaming into per-run tables; checks on the code | ◐ v0 | `dh_chart_ext/backtests.py`, `sandbox.py`; `cep_sim/runner.py` stands in for the CEP (`cep_sim/README.md`: the contract) | the real CEP behind a launcher; a jailed launcher (`CommandLauncher`); runs kept after a restart (parquet); paper deployment with supervision and a kill switch |
 | Alert engine | crossings evaluated in the engine, written back | ✅ | `dh_chart_ext/alerts.py` | finer than one cycle; more alert types; delivery channels |
 | Supervised actions | Python side effects off the graph, with health | ✅ | `dhapp.App.action` (X14) | the alert engine as a dhapp action |
 | Sessions | exchange calendars per instrument | ✅ | `dh_chart_ext/sessions.py` | holidays and early closes from a calendar source |
@@ -133,7 +135,7 @@ Rules that keep the pieces reusable:
 | CI | ✅ | dh-charts `.github/workflows/ci.yml` (JS packages, then a live server and the protocol tests); deephaven-compare `pixi run ci` for desk-app |
 | Versions | ✅ pinned | Lightweight Charts 5.2.0, Deephaven Community 42.6, `@deephaven/jsapi-types` ~41.11 (behind the server), the fork at 0.1.0+acme.1; track upgrades in one place |
 | Packaging | ✅ | npm tarballs in lwc-vendor; editable wheel for dh-chart-ext; desk-app as one wheel; package boundaries should follow the layers (below) |
-| Evidence | ✅ | `VERIFIED_FACTS.md` in deephaven-compare (C1–C26 charts, the chart API and the shell, X1–X32 framework) |
+| Evidence | ✅ | `VERIFIED_FACTS.md` in deephaven-compare (C1–C27 charts, the chart API and the shell, X1–X32 framework) |
 | The fork of Deephaven's plugin | ✅ | needed only for A/B; propose its changes upstream, or drop it with A/B |
 | Licensing | ✅ Apache-2.0 | no TradingView attribution added (decided) |
 
@@ -154,6 +156,7 @@ For the pieces not yet built or only partial. Size is rough: S about a day, M a 
 | ~~Price formatting by tick size~~ | done for group C (demo tick sizes) | | |
 | ~~Generic table widget~~ | done (v0) | | |
 | Forms from control schemas | done for request methods (v0); input-table controls not yet | M | which control types to support |
+| Strategy workbench and backtest service | done (v0) with the CEP stand-in | M | the real CEP's launcher and data; persistence of runs; paper deployment (L) |
 | DAG explorer | done (v0); grouping and live costs open | M | 237 nodes in 177 ms on the demo; a big graph's fan-outs need grouping |
 | Identity: a token issuer | `tokens.sign_token` (done) | S–M | where users log in (single sign-on) |
 | ~~Node cache limits and metrics~~ | done | | |
@@ -176,6 +179,7 @@ the request client and handler registry, then `SeriesFeed` and the React chart p
 | S4 Many users | S2/S3 + identity, node-cache limits, observability, scaling | |
 | S5 Trading front end | S2 + trading widgets, markers, position lines, broker integration | |
 | S6 Chart component reused without Deephaven | layer 1 + `SeriesFeed` and store interfaces, a non-Deephaven adapter | layers 2–4 |
+| S8 Strategy workbench: traders write strategies in the CEP's Python DSL, backtest them, watch results stream, deploy to paper | S2 + the backtest service and a CEP launcher, series and table panels, identity (strategies they own), permissions (who may deploy) | |
 | S7 Enterprise deployment | S2/S3 + `dhfw` on a plant, Enterprise identity and ACLs | Community emulations |
 
 ## Open decisions
@@ -210,6 +214,12 @@ What building out decisions 1–3 showed, most pressing first:
 | Pop-out windows are unverified | the test browser opens no second window | check in a normal browser: LWC and the grid in a child window, styles copied |
 | Group C's chart panel still reads fixed table names (`quotes`, `bars_<res>`, `sessions`) | `RawWorkspace` internals | panel options, or the API (`symbols`, a quotes node) |
 | A/B keep their own pages in `web/` | two hosts to maintain | decision 7 |
+| Runs don't survive a restart | a saved workspace's run tabs point at tables that are gone | write a finished run's tables to parquet and reload them on demand; a run index on disk |
+| Strategy code is only sanitized here | `LocalLauncher` runs it as the server's user | the production launcher: its own OS user in a jail or container, only the Deephaven address reachable, memory, CPU and time limits |
+| The CEP writes with anonymous access | any client could append to a run's tables | a per-run token for the CEP; tables writable only by it (needs identity, decision 5) |
+| Run tables are published in the global scope | every user sees every run's tables | per-user visibility (Enterprise ACLs) or shared tickets handed to the owner only |
+| The editor is a textarea | no highlighting or completion of the DSL | Monaco or CodeMirror with the DSL's names; errors at their lines |
+| Signals (`ctx.signal`) are stored but not drawn | long/short events only in the table | markers on the price charts |
 
 ## Target packages (current → proposed)
 

@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { LAYOUT_VERSION, apiWorkspaceStore, localWorkspaceStore, migrateLayout } from '../src/workspace-store';
 import { parseField } from '../src/panels';
 import { layoutGraph } from '../src/graph/GraphPanel';
+import { oneRowPerTime } from '../src/series/SeriesPanel';
 
 const memoryStorage = () => {
   const m = new Map<string, string>();
@@ -85,5 +86,19 @@ describe('layoutGraph', () => {
   it('survives a cycle and parents that are not in the list', () => {
     const { placed } = layoutGraph([n(1, [2]), n(2, [1]), n(3, [99])]);
     expect(placed.size).toBe(3);
+  });
+});
+
+describe('oneRowPerTime', () => {
+  it('keeps the last row per time, in time order', () => {
+    const rows = [
+      { time: 2, v: 1 },
+      { time: 1, v: 2 },
+      { time: 2, v: 3 },
+    ];
+    expect(oneRowPerTime(rows)).toEqual([
+      { time: 1, v: 2 },
+      { time: 2, v: 3 },
+    ]);
   });
 });
