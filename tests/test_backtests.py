@@ -46,7 +46,7 @@ def test_a_run_streams_into_its_tables(bt):
     assert r["symbols"] == ["ES"]
     assert r["tables"]["equity"] == f"bt{r['run_id']}_equity"
     run = wait_for(bt, r["run_id"])
-    assert run["status"] == "done", run
+    assert run["status"] == "done", run["message"]
     assert run["bars"] > 1000 and run["trades"] > 0
     tables = dict(zip(["trades", "orders", "positions", "signals", "equity"], [x.fetch() for x in refs]))
     equity = tables["equity"].to_arrow()
@@ -86,7 +86,7 @@ def test_an_engine_run_serves_its_tables_then_its_archive(bt):
     r = bt.result("backtest_submit", code=ex["code"], params={**ex["params"], "symbols": ["ES"], "speed": 50000, "engine": True})[0]
     assert r["tables"]["equity"] == "equity"  # the standard names, in the run's own engine
     run = wait_for(bt, r["run_id"], timeout=300)
-    assert run["status"] == "done", run
+    assert run["status"] == "done", run["message"]
     deadline = time.time() + 60
     while not bt.result("backtest_engine", run_id=r["run_id"])[0]["archive"] and time.time() < deadline:
         time.sleep(1)

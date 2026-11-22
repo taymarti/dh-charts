@@ -117,17 +117,21 @@ class LocalLauncher(Launcher):
     def __init__(self, python: str = sys.executable, runner: pathlib.Path = RUNNER, memory_mb: int = 4096, cpu_s: int = 600):
         self.python, self.runner, self.memory_mb, self.cpu_s = python, runner, memory_mb, cpu_s
 
-    def _limits(self):  # pragma: no cover (POSIX only)
+    def _limits(self, address_space: bool = True):  # pragma: no cover (POSIX only)
         import resource
 
-        resource.setrlimit(resource.RLIMIT_AS, (self.memory_mb << 20, self.memory_mb << 20))
+        if address_space:
+            resource.setrlimit(resource.RLIMIT_AS, (self.memory_mb << 20, self.memory_mb << 20))
         resource.setrlimit(resource.RLIMIT_CPU, (self.cpu_s, self.cpu_s))
 
     def launch(self, spec: dict) -> subprocess.Popen:
         keep = ("SYSTEMROOT", "PATH", "TEMP", "TMP", "LANG", "JAVA_HOME")  # SYSTEMROOT: sockets on Windows; JAVA_HOME: engine runs
         env = {k: v for k, v in os.environ.items() if k in keep}
+        # an engine run starts a JVM, which reserves far more address space than its heap (class space, code
+        # cache, thread stacks): no RLIMIT_AS for it; its heap is -Xmx, and a container bounds the rest
+        engine = bool(spec.get("engine"))
         return _start([self.python, "-I", str(self.runner)], spec, env=env,
-                      preexec_fn=self._limits if os.name == "posix" else None)
+                      preexec_fn=(lambda: self._limits(address_space=not engine)) if os.name == "posix" else None)
 
 
 class CommandLauncher(LocalLauncher):
