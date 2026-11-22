@@ -71,6 +71,7 @@ Findings from building it:
 | `dh-plugin/src/dh_chart_ext/` `data.py` `charts.py` `workspace.py` | The Python layers L0, L1 and L2 |
 | `dh-plugin/src/dh_chart_ext/` `cache.py` `nodes.py` `api.py` | Charts on demand: shared, reference-counted DAG nodes (`NodeCache`, `ChartNodes`) and the chart API object type (`acme.chart.Api`) that serves them to JS clients |
 | `web/src/chartApi.ts` | The JS client for the chart API (`useChartApi`, `ChartApiClient.chart()`) |
+| `docs/component-map.md` | Every piece, built or plausible, by layer (chart component, Deephaven bindings, app shell, server framework), with scenarios and open decisions |
 | `app.d/` | Demo app: the benchmark's 16 synthetic feeds, the L0 standard set, `chart_ES` (L1), `ws` and `ws_grid` (L2) |
 
 How the pieces fit:
