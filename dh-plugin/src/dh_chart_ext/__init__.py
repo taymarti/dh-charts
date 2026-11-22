@@ -12,6 +12,9 @@ Python layers (see README.md for which front ends each one serves):
   dh_chart_ext.workspace  L2  a deephaven.ui workspace: toolbar, 1-4 charts, legend, watchlist, alerts
   dh_chart_ext.alerts     P   alerts in one table, evaluated in the engine (AlertEngine)
   dh_chart_ext.sessions       trading-session calendars per instrument
+  dh_chart_ext.cache          NodeCache: shared, reference-counted tables keyed by request
+  dh_chart_ext.nodes          ChartNodes: chart tables on demand (bars, studies, spreads) as shared nodes
+  dh_chart_ext.api            ChartApi: the chart API object type (acme.chart.Api) for JS clients
 
 They import deephaven, so they load only inside a Deephaven worker; import them explicitly.
 """

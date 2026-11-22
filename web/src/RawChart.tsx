@@ -19,6 +19,7 @@
  * through series.update(), which LWC handles incrementally for the last bar.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useChartApi, type ChartApiClient, type StudySpec } from './chartApi';
 import { useApi } from '@deephaven/jsapi-bootstrap';
 import { useConnection } from '@deephaven/app-utils';
 import type { dh as Dh } from '@deephaven/jsapi-types';
@@ -82,6 +83,7 @@ export function RawChart({
   onChart,
   viewWindow,
   barSeconds,
+  api,
 }: {
   table: string;
   sym: string;
@@ -97,6 +99,9 @@ export function RawChart({
   viewWindow?: number | null;
   /** bar length, for the bar-close countdown */
   barSeconds?: number;
+  /** with it, the chart's table comes from the server's chart API (any resolution, spreads, shared nodes)
+   * instead of the published `table` filtered to `sym`; `studies` must then be the columns of `api.studies` */
+  api?: { client: ChartApiClient; res: string; studies: StudySpec[] };
 }) {
   const nav = useRef<Navigation | null>(null);
   const windowRef = useRef(viewWindow);
@@ -163,9 +168,19 @@ export function RawChart({
       })
       .catch(() => {});
     (async () => {
-      const t = (await connection.getObject({ type: dh.VariableType.TABLE, name } as never)) as Dh.Table;
-      if (closed) return t.close();
-      t.applyFilter([t.findColumn('Sym').filter().eq(dh.FilterValue.ofString(sym))]); // server-side
+      let t: Dh.Table;
+      let release = () => t.close();
+      if (api) {
+        // a shared node on the server, built on first request (one symbol: no filter needed)
+        const h = await api.client.chart(sym, api.res, api.studies);
+        if (closed) return h.release();
+        t = h.table;
+        release = h.release;
+      } else {
+        t = (await connection.getObject({ type: dh.VariableType.TABLE, name } as never)) as Dh.Table;
+        if (closed) return t.close();
+        t.applyFilter([t.findColumn('Sym').filter().eq(dh.FilterValue.ofString(sym))]); // server-side
+      }
       const cols = ['Timestamp', 'Open', 'High', 'Low', 'Close', ...studies].map(c => t.findColumn(c));
       const sub = t.subscribe(cols);
       let first = true;
@@ -194,9 +209,9 @@ export function RawChart({
       });
       cleanup = () => {
         sub.close();
-        t.close();
+        release();
       };
-    })();
+    })().catch(e => console.warn('chart data failed', e));
     return () => {
       closed = true;
       cleanup();
@@ -213,7 +228,8 @@ export function RawChart({
       chartRef.current = null;
       chart.remove();
     };
-  }, [dh, connection, name, sym, studies.join(','), colors.join(','), annotations, user, barSeconds]);
+  }, [dh, connection, name, sym, studies.join(','), colors.join(','), annotations, user, barSeconds, api?.client, api?.res,
+      JSON.stringify(api?.studies)]);
 
   useEffect(() => nav.current?.update({ viewWindow: viewWindow ?? null }), [viewWindow]);
 
@@ -269,15 +285,19 @@ function useQuotes(name: string): WatchlistRow[] {
   return rows;
 }
 
-function toolbarOptions(symbols: string[]): ToolbarOptions {
+/** Resolutions: the published bars_<res> tables, or with the chart API any (it builds them on demand). */
+const TABLE_RESOLUTIONS = ['1s', '5s', '1m', '5m'];
+const API_RESOLUTIONS = ['1s', '5s', '15s', '1m', '2m', '5m', '15m', '30m', '1h'];
+const secsOf = (r: string) => Number(r.slice(0, -1)) * ({ s: 1, m: 60, h: 3600, d: 86400 } as Record<string, number>)[r.slice(-1)];
+
+function toolbarOptions(symbols: string[], api: boolean): ToolbarOptions {
   return {
     symbols: symbols.map(s => ({ key: s, label: s })),
-    resolutions: [
-      { key: '1s', label: '1s', group: 'Seconds' },
-      { key: '5s', label: '5s', group: 'Seconds' },
-      { key: '1m', label: '1m', group: 'Minutes' },
-      { key: '5m', label: '5m', group: 'Minutes' },
-    ],
+    // with the API, a typed spread or ratio (ES-NQ, ZN/ZB) is an instrument too
+    expressions: api,
+    resolutions: (api ? API_RESOLUTIONS : TABLE_RESOLUTIONS).map(r => ({
+      key: r, label: r, group: secsOf(r) < 60 ? 'Seconds' : secsOf(r) < 3600 ? 'Minutes' : 'Hours',
+    })),
     studies: [
       { key: 'EMA_20', label: 'EMA 20', group: 'Moving averages' },
       { key: 'EMA_50', label: 'EMA 50', group: 'Moving averages' },
@@ -296,7 +316,6 @@ function toolbarOptions(symbols: string[]): ToolbarOptions {
 
 /** The view window per range choice (seconds; null: all). */
 const RANGES: Record<string, number | null> = { '30m': 1800, '1h': 3600, '4h': 14400, '1D': 86400, '5D': 432000, All: null };
-const BAR_SECONDS: Record<string, number> = { '1s': 1, '5s': 5, '1m': 60, '5m': 300 };
 const ALERT_SOURCES = [
   { key: 'Last', label: 'Price (last trade)' },
   ...['EMA_20', 'EMA_50', 'SMA_20', 'VWAP', 'RSI_14'].flatMap(c =>
@@ -357,12 +376,16 @@ export function RawWorkspace({
   annotations,
   user,
   initial,
+  apiName = null,
 }: {
   symbols: string[];
   annotations: string;
   user: string;
   initial: ToolbarValue;
+  /** the published chart API to load charts through (null: the published bars_<res> tables) */
+  apiName?: string | null;
 }) {
+  const client = useChartApi(apiName);
   const [value, setValue] = useState<ToolbarValue>({ panel: 'watchlist', range: '4h', ...initial });
   const [hidden, setHidden] = useState<string[]>([]);
   const [lwc, setLwc] = useState<{ chart: IChartApi; series: ISeriesApi<SeriesType>[] } | null>(null);
@@ -384,10 +407,11 @@ export function RawWorkspace({
   return (
     <div style={{ position: 'absolute', inset: 0, display: 'flex', background: '#131722' }}>
       <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
-        <ChartToolbar value={value} options={toolbarOptions(symbols)} onChange={patch => setValue(v => ({ ...v, ...patch }))} />
+        <ChartToolbar value={value} options={toolbarOptions(symbols, apiName != null)} onChange={patch => setValue(v => ({ ...v, ...patch }))} />
         <div style={{ position: 'relative', flex: 1 }}>
-          <RawChart
+          {apiName != null && client == null ? null : <RawChart
             table={`bars_${value.resolution ?? '1m'}`}
+            api={client ? { client, res: value.resolution ?? '1m', studies: shown } : undefined}
             sym={sym}
             studies={columns}
             colors={colors}
@@ -396,8 +420,8 @@ export function RawWorkspace({
             scale={value.scale}
             onChart={setLwc}
             viewWindow={RANGES[value.range ?? '4h'] ?? null}
-            barSeconds={BAR_SECONDS[value.resolution ?? '1m']}
-          />
+            barSeconds={secsOf(value.resolution ?? '1m')}
+          />}
           <ChartLegend
             chart={lwc?.chart ?? null}
             series={lwc?.series ?? []}

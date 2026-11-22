@@ -13,6 +13,7 @@ Published fields, one per layer and front end (README.md):
   chart_annotations                    P: saved price lines, drawings, workspace settings; app.d/annotations.parquet
   chart_alerts, alerts_fired           alerts (app.d/alerts.parquet), evaluated by alert_engine; fired ones
   sessions                             trading hours per symbol (JSON spec), for JS clients
+  chart_api                            the chart API (dh_chart_ext.api): charts on demand as shared nodes, for JS clients
   history_ticks                        DEMO_HISTORY_DAYS (default 5) of synthetic ticks before the live feed,
                                        one per DEMO_HISTORY_STEP_S (5) per symbol, busier in regular hours
 
@@ -31,6 +32,7 @@ _app_dir = pathlib.Path(jpy.get_type("java.lang.System").getProperty("deephaven.
 exec((_app_dir.parent / "perf" / "app.d" / "feeds.py").read_text(encoding="utf-8"))
 
 from dh_chart_ext.alerts import AlertEngine, alert_table, alerts_log  # noqa: E402
+from dh_chart_ext.api import ChartApi  # noqa: E402
 from dh_chart_ext.charts import price_chart  # noqa: E402
 from dh_chart_ext.data import EMA, RSI, Bollinger, Volume, for_symbol  # noqa: E402
 from dh_chart_ext.store import annotation_table  # noqa: E402
@@ -66,6 +68,10 @@ source = ChartSource(all_ticks)
 
 # L0: the standard set, for every front end (React apps that draw their own charts filter these)
 globals().update(source.standard_tables())
+
+# Charts on demand: any symbol, spread, resolution and studies, built when first asked for and shared
+# (source.nodes); workspaces use it directly, JS clients through this object
+chart_api = ChartApi(source)
 
 # L1: one composed chart
 chart_ES = price_chart(

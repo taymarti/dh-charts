@@ -20,6 +20,8 @@
  * Or a chart from table data only, our own LWC chart (front-end group C; see RawChart.tsx):
  *   ?raw=bars_1m&sym=ES&studies=EMA_20,BB_20_2_Upper,BB_20_2_Lower
  *   ?workspace&sym=ES                       the same with the TradingView-style toolbar (@acme/chart-react)
+ *   ?workspace&api                          ... with charts from the server's chart API (any resolution, spreads,
+ *                                           nodes shared with every other client); &api=<name> for another object
  */
 import { useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { useConnection } from '@deephaven/app-utils';
@@ -201,7 +203,8 @@ export default function App() {
 /** Group C's workspace, with the page's alert store and session calendar from the published tables. */
 function RawWorkspacePage({ initial }: { initial: ToolbarValue }) {
   usePageAlertsAndSessions();
-  return <RawWorkspace symbols={SYMS} annotations={ANNOTATIONS} user={USER} initial={initial} />;
+  const api = q.has('api') ? q.get('api') || 'chart_api' : null;
+  return <RawWorkspace symbols={SYMS} annotations={ANNOTATIONS} user={USER} initial={initial} apiName={api} />;
 }
 
 function Grid() {

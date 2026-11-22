@@ -69,6 +69,8 @@ Findings from building it:
 | `dh-plugin/` | **`dh-chart-ext`**: a Python package that registers a JS plugin with the Deephaven server and brings `@acme/chart-ext` to every Deephaven web UI, deephaven.ui dashboards included |
 | (fork) | Our changes to Deephaven's plugin live in [taymarti/deephaven-plugins](https://github.com/taymarti/deephaven-plugins/tree/acme/tradingview-lightweight), branch `acme/tradingview-lightweight` (see "The fork" below) |
 | `dh-plugin/src/dh_chart_ext/` `data.py` `charts.py` `workspace.py` | The Python layers L0, L1 and L2 |
+| `dh-plugin/src/dh_chart_ext/` `cache.py` `nodes.py` `api.py` | Charts on demand: shared, reference-counted DAG nodes (`NodeCache`, `ChartNodes`) and the chart API object type (`acme.chart.Api`) that serves them to JS clients |
+| `web/src/chartApi.ts` | The JS client for the chart API (`useChartApi`, `ChartApiClient.chart()`) |
 | `app.d/` | Demo app: the benchmark's 16 synthetic feeds, the L0 standard set, `chart_ES` (L1), `ws` and `ws_grid` (L2) |
 
 How the pieces fit:
@@ -91,22 +93,52 @@ the legend's values, the context menu's view actions. Drawings and price lines g
 browser to the annotations input table (`addRow`), not through Python callbacks.
 
 - **deephaven.ui workspace (A, and B when it hosts the workspace):** a toolbar change is a call to the
-  workspace's Python `on_change`, over deephaven.ui's message channel. The component re-renders: it filters
-  the shared bar table to the symbol, adds the selected studies (`update_by`), applies the range, composes
-  a new chart object, and saves the settings row. The browser gets a new chart, which Deephaven's plugin
-  subscribes and draws (about 90–150 ms to the new chart, then the snapshot streams in). Each open
-  workspace owns its filtered, study-computed tables: cheap per user, but it scales with users × charts,
-  so for many users compute studies once per symbol (the L0 standard set) and have workspaces only filter.
-- **React with table data only (C):** state lives in React. A change re-subscribes: symbol and range are
-  server-side filters (JS API `applyFilter`) on the published `bars_<res>` tables; studies are their
-  precomputed columns. No Python runs per change.
+  workspace's Python `on_change`, over deephaven.ui's message channel. The component re-renders: it takes
+  the chart's shared node (below) for the symbol, interval and shown studies, applies its own lookback,
+  composes a new chart object, and saves the settings row. The browser gets a new chart, which Deephaven's
+  plugin subscribes and draws (about 90–150 ms to the new chart, then the snapshot streams in).
+- **React with table data only (C):** state lives in React. A change re-subscribes, either to a published
+  `bars_<res>` table filtered on the server (JS API `applyFilter`; studies are its precomputed columns),
+  or with `?workspace&api` to a shared node from the chart API: one request, then the same subscription.
+
+**Shared nodes.** The expensive part of a chart (bars at a resolution, studies, a spread's ticks) is a
+node in the server's DAG, built when a client first asks for it and shared by every client asking for the
+same thing (`nodes.ChartNodes` over a `cache.NodeCache`). Requests are made canonical first (`2m` = `120s`
+= `PT2M`; studies by key, sorted; expressions without spaces), so equal requests get one node. Nodes are
+layered, each holding its parent: `ticks` (spreads) → `bars` (a standard resolution is the shared
+all-symbol table filtered to the symbol; others roll up from the largest standard one that divides them,
+2m from 1m) → `chart` (bars + studies). Each is reference-counted: a deephaven.ui pane holds its node while
+it shows it, an API stream holds what it asked for until it releases it or closes. At zero a node is kept
+for a grace period (60 s; a reload reuses it), then released with its idle parents, and the engine stops
+updating it. Server cost then follows the number of distinct charts on screen, not users × charts, and
+falls back when people leave. Per-client parts stay per client and cheap (a pane's lookback, zoom).
+
+**The chart API** (`api.ChartApi`, published as `chart_api`) is a Deephaven object type with a message
+stream per client: JSON requests (`chart`, `bars`, `release`, `symbols`, `stats`, `whoami`) answered with
+JSON and, for a chart, a reference to its node, which the client subscribes to over Barrage like any
+table. It is how front ends that draw their own charts get any resolution, studies and spreads without
+running Python per user: `web/src/chartApi.ts` is the client. Requests run on Deephaven's concurrent
+executor, one at a time per stream, under the stream's execution context. Measured: a cold `NQ 2m EMA 20`
+builds in 0.9 s, a second client's identical request returns the same node in about 10 ms, and the cold
+`ES-NQ` spread takes about 4 s (its tick history).
+
+Who is asking: the handlers can read the caller's auth context (`whoami`), but on Community it carries no
+user: anonymous logins all show `AuthContext$Anonymous` (verified), and PSK logins share one context too
+(per the source). A user id must come from a token the client sends and the server verifies, or from a
+custom Java authentication handler.
+
+Leases: a browser tab that navigates away was never reported to the plugin (no `on_close` after 11
+minutes, well past the session's expiry), so its nodes would leak. Every stream therefore has a lease
+(90 s): any message renews it, the JS client pings every 30 s, and a silent stream is closed and its nodes
+released. Verified: a live page kept its node for 2.5 minutes; an abandoned one was released 80–90 s after
+it left.
 
 What each group gets, feature by feature:
 
 | Feature | A deephaven.ui | B React + `WidgetView` | C React, table data |
 |---|---|---|---|
 | Legend rows: show/hide, remove | ✓ (Python state) | ✓ (same element) | ✓ (React state) |
-| Study settings (length, multiplier, color), several instances of one study | ✓ recomputed in Python (`update_by`) | ✓ | ✗ only the standard set's fixed columns; changing a parameter needs a server-side computation |
+| Study settings (length, multiplier, color), several instances of one study | ✓ recomputed in Python (`update_by`) | ✓ | the standard set's fixed columns; with the chart API any parameters (`{type, params}`), UI not built yet |
 | Watchlist | ✓ `acme.chart.Watchlist` over `source.quotes` | ✓ | ✓ `Watchlist` + `subscribeRows` over the published `quotes` |
 | Multi-chart layouts (1, 2, 3, 4) with symbol / interval sync | ✓ Python state per pane | ✓ | not built yet: the parts exist (`RawChart`, `bindSync`, the toolbar's layout menu) |
 | Crosshair and time sync | ✓ by `data-acme-sync-*` attributes the frame sets | ✓ | ✓ `bindSync` (page group) |
@@ -115,7 +147,8 @@ What each group gets, feature by feature:
 | Alerts: price, drawn line, study value; lines, Alerts panel, toast when one fires | ✓ evaluated by `AlertEngine` on the server | ✓ | ✓ the same `chart_alerts` table and engine: one set of alerts across all front ends |
 | Sessions: shading of closed / extended hours, market status, bar-close countdown | ✓ calendar passed by the workspace | ✓ | ✓ from the published `sessions` table |
 | Compare (overlay on a % scale) | ✓ | ✓ | not built: needs a second subscription per compared symbol |
-| Spreads and ratios (`ES-NQ`, `ZN/ZB`, `2*ZN-ZB`) | ✓ computed in Deephaven from the legs' ticks | ✓ | ✗ an expression needs a server-side table; publish chosen spreads to offer them |
+| Spreads and ratios (`ES-NQ`, `ZN/ZB`, `2*ZN-ZB`) | ✓ computed in Deephaven from the legs' ticks | ✓ | ✓ with `?workspace&api`: the chart API builds the spread's node |
+| Any interval (2m, 15m, 30m, 1h, 15s) | ✓ shared nodes, rolled up from standard bars | ✓ | ✓ with `?workspace&api` (else the four published resolutions) |
 
 How the server-side pieces work:
 
@@ -135,7 +168,7 @@ How the server-side pieces work:
   next change with `Intl`, so daylight saving is handled. Holidays are not modelled.
 - **Spreads.** `data.spread_ticks` takes the legs' ticks in time order, forward-fills each leg's
   latest price, and prices every tick of any leg. Bars and studies are then built as for any symbol.
-  The first build of a spread takes about a second per 200k ticks; after that it is cached and shared.
+  The first build of a spread takes about a second per 200k ticks; after that it is a shared node.
 
 ## The hook
 
@@ -173,7 +206,8 @@ whenever the plugin reconfigures its series. An extension is
 | Alerts: Alt+A or the context menu at a price, on a drawn line (it follows the line), on study values from the Alerts panel; dashed line with a bell; toast and log when fired | ours (`dh_chart_ext.alerts`, `ext/src/alerts.ts`, `react/src/AlertsPanel.tsx`) | Verified: deephaven.ui workspace and group C on one store; three alerts fired in the engine and were logged |
 | Real sessions: closed and extended hours shaded per exchange calendar, market status dot (with time to the next change), bar-close countdown on the price axis | ours (`dh_chart_ext.sessions`, `ext/src/sessions.ts`, `ext/src/countdown.ts`) | Verified: deephaven.ui workspace, group C |
 | Compare: overlay another symbol on a % scale, listed in the legend | ours (`charts.price_chart(compare=...)`, toolbar "Compare") | Verified: deephaven.ui workspace |
-| Spreads and ratios typed into the symbol search (`ES-NQ`, `ZN/ZB`, `2*ZN-ZB`), with studies | ours (`dh_chart_ext.data.spread_ticks`) | Verified: deephaven.ui workspace (ES-NQ) |
+| Spreads and ratios typed into the symbol search (`ES-NQ`, `ZN/ZB`, `2*ZN-ZB`), with studies | ours (`dh_chart_ext.data.spread_ticks`) | Verified: deephaven.ui workspace (ES-NQ), group C through the chart API |
+| Charts on demand as shared DAG nodes (reference-counted, released after a grace period), served to JS clients by the chart API (`acme.chart.Api`) | ours (`dh_chart_ext.cache`, `nodes`, `api`; `web/src/chartApi.ts`) | Verified: two pydeephaven clients share one node; deephaven.ui workspace and group C (`?workspace&api`: 2m, ES-NQ) |
 | Workspace settings (symbol, resolution, range, type, studies, scale) | `dh_chart_ext.store.load_settings` / `save_settings`, per (`layout`, `user`) | Verified: restored after reload and server restart |
 | Session/time-range shading | ours (`ext/src/lwc-plugins/time-range-shading.ts`) | Works in both hosts |
 
@@ -252,7 +286,10 @@ The demo (`app.d`), per front-end group:
 - B, React with Deephaven UI objects: `http://localhost:4050/?widget=ws`, or
   `?widget=chart_ES&type=deephaven.plot.tradingview_lightweight.TvlChart`
 - C, React with table data only: `http://localhost:4050/?workspace&sym=NQ` (toolbar, legend, watchlist,
-  alerts, sessions), or one bare chart: `?raw=bars_1m&sym=ES&studies=EMA_20,BB_20_2_Upper,BB_20_2_Lower`
+  alerts, sessions), `?workspace&api&sym=NQ` for charts from the chart API (any interval, spreads), or one
+  bare chart: `?raw=bars_1m&sym=ES&studies=EMA_20,BB_20_2_Upper,BB_20_2_Lower`
+- The chart API from Python: `pydeephaven` `Session.plugin_client(session.exportable_objects["chart_api"])`,
+  then JSON requests on its `req_stream` (the browser console has `window.chartApi` on an `&api` page)
 
 The demo puts 5 days of synthetic history (`DEMO_HISTORY_DAYS`) before the live feed. Expect about 30 s
 after "Deephaven is up" before the first workspace opens; later opens take a few seconds.

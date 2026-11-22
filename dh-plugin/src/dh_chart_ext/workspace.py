@@ -39,6 +39,7 @@ from .data import (
     STANDARD_RESOLUTIONS, STUDIES, STUDY_TYPES, Lookback, bars, for_symbol, in_range, is_expression, parse_expression,
     quotes, resolution_seconds, spread_ticks, standard_set, study_label,
 )
+from .nodes import resolution_options, resolution_secs
 from .sessions import SESSIONS, session_for, sessions_table
 from .store import load_settings, save_settings
 
@@ -70,6 +71,17 @@ class ChartSource:
         self._spreads: dict = {}
         self._standard: Optional[dict] = None
         self._values: Optional[Table] = None
+        self._nodes = None
+
+    @property
+    def nodes(self):
+        """The shared chart nodes (nodes.ChartNodes): bars and studies built on demand per request, shared by
+        every workspace and API client asking for the same chart, released when none holds it."""
+        if self._nodes is None:
+            from .nodes import ChartNodes
+
+            self._nodes = ChartNodes(self)
+        return self._nodes
 
     def bars(self, resolution: str) -> Table:
         return self._bars[resolution]
@@ -375,7 +387,7 @@ def apply_study_patch(pane: dict, patch: dict) -> dict:
 def _interval_group(resolution: str) -> str:
     if resolution == "tick":
         return "Ticks"
-    secs = resolution_seconds(resolution)
+    secs = resolution_secs(resolution)
     return "Seconds" if secs < 60 else "Minutes" if secs < 3600 else "Hours" if secs < 86400 else "Days"
 
 
@@ -429,18 +441,39 @@ def chart_pane(source: ChartSource, pane: dict, index: int, active: bool, multi:
     usable = [s for s in pane["studies"] if not (s["type"] == "Volume" and sym and is_expression(sym))]
     shown = [s for s in usable if s.get("visible", True)] if res != "tick" else []
 
+    # the chart's tables are shared nodes (source.nodes): this symbol's bars with the shown studies, and each
+    # compared symbol's bars. Another pane or API client asking for the same chart gets the same tables; they
+    # are held while this pane shows them (released when its settings change or it unmounts)
+    nodes = source.nodes
+    node_key = json.dumps([sym, res, [[s["type"], s["params"]] for s in shown], [c["sym"] for c in compare]], sort_keys=True)
+
+    def acquire():
+        if sym is None or res == "tick":
+            return None
+        main = nodes.chart(sym, res, [{"type": s["type"], "params": s["params"]} for s in shown], symbols=symbols)
+        cmps = [nodes.bars(c["sym"], res, symbols=symbols) for c in compare]
+        return {"keys": [main[0], *(k for k, _ in cmps)], "table": main[1], "compare": [t for _, t in cmps]}
+
+    held = ui.use_memo(acquire, [node_key])
+
+    def hold():
+        keys = held["keys"] if held else []
+        return lambda: [nodes.release(k) for k in keys]
+
+    ui.use_effect(hold, [node_key])
+
     def build():
         if sym is None:
             return ui.text("Waiting for data...")
         if res == "tick":
             return tick_chart(in_range(source.instrument_ticks(sym, symbols), lookback), title=sym, scale=scl)
         return price_chart(
-            source.instrument_bars(sym, res, symbols), since=lookback, chart_type=ctype, scale=scl, title=sym,
+            held["table"], since=lookback, chart_type=ctype, scale=scl, title=sym,
             studies=[STUDY_TYPES[s["type"]].build(s["params"]) for s in shown], colors=[s.get("color") for s in shown],
-            compare=[(c["sym"], source.instrument_bars(c["sym"], res, symbols), c["color"]) for c in compare],
+            compare=[(c["sym"], t, c["color"]) for c, t in zip(compare, held["compare"])],
         )
 
-    chart = ui.use_memo(build, [sym, res, ctype, studies_key, scl])
+    chart = ui.use_memo(build, [node_key, ctype, studies_key, scl])
 
     legend = [] if res == "tick" else [
         {"id": s["id"], "type": s["type"], "params": s["params"], "label": study_label(s["type"], s["params"]),
@@ -460,7 +493,7 @@ def chart_pane(source: ChartSource, pane: dict, index: int, active: bool, multi:
         on_study_change=lambda patch: on_pane(index, lambda p: apply_study_patch(p, patch)),
         multi=multi, active=active, on_activate=lambda: on_activate(index),
         sync_crosshair=sync_crosshair, sync_time=sync_time,
-        view_window=RANGES.get(rng), bar_seconds=None if res == "tick" else resolution_seconds(res),
+        view_window=RANGES.get(rng), bar_seconds=None if res == "tick" else resolution_secs(res),
         session=session_for(sym) if sym else None, on_history=on_history, history_complete=secs is None,
     )
 
@@ -564,7 +597,7 @@ def chart_workspace(
     options = {
         "symbols": [{"key": s, "label": s} for s in symbols],
         "resolutions": [{"key": r, "label": "Tick" if r == "tick" else r, "group": _interval_group(r)}
-                        for r in ["tick", *source.resolutions]],
+                        for r in ["tick", *resolution_options()]],
         "ranges": [{"key": k, "label": k} for k in RANGES],
         "chartTypes": [{"key": k, "label": v} for k, v in CHART_TYPES.items()],
         "studies": [] if cur["resolution"] == "tick" else [
