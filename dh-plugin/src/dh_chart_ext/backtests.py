@@ -101,7 +101,10 @@ class LocalLauncher(Launcher):
     """For development: `python -I runner.py` in a temporary directory, a minimal environment, a time limit
     (enforced by the service), and on POSIX address-space and CPU limits. Not a security boundary."""
 
-    def __init__(self, python: str = sys.executable, runner: pathlib.Path = RUNNER, memory_mb: int = 1024, cpu_s: int = 600):
+    # memory_mb caps the address space (RLIMIT_AS), not resident memory: gRPC and Arrow reserve far more virtual
+    # memory than they use (thread stacks, arenas), and at 1 GB the runner's gRPC threads failed to start on a
+    # Linux CI runner ("Failed to start lifeguard thread"). A container's memory limit is the better control.
+    def __init__(self, python: str = sys.executable, runner: pathlib.Path = RUNNER, memory_mb: int = 4096, cpu_s: int = 600):
         self.python, self.runner, self.memory_mb, self.cpu_s = python, runner, memory_mb, cpu_s
 
     def _limits(self):  # pragma: no cover (POSIX only)
