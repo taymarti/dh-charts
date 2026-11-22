@@ -21,7 +21,9 @@
  *   ?raw=bars_1m&sym=ES&studies=EMA_20,BB_20_2_Upper,BB_20_2_Lower
  *   ?workspace&sym=ES                       the same with the TradingView-style toolbar (@acme/chart-react)
  *   ?workspace&api                          ... with charts from the server's chart API (any resolution, spreads,
- *                                           nodes shared with every other client); &api=<name> for another object
+ *                                           RSI and volume panes, compare; nodes shared with every other client);
+ *                                           &api=<name> for another API object
+ *   &tz=America/Chicago                     the time zone of group C's charts (default: local, as Deephaven's chart)
  */
 import { useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { useConnection } from '@deephaven/app-utils';
@@ -39,13 +41,11 @@ import {
   providePageAnnotationStore,
   setPageSessions,
   showAlertToasts,
-  subscribeRows,
-  tableAlertStore,
-  tableAnnotationStore,
   type ExtensionName,
   type SessionSpec,
 } from '@acme/chart-ext';
-import type { ToolbarValue } from '@acme/chart-react';
+import { subscribeRows, tableAlertStore, tableAnnotationStore } from '@acme/dh-bindings';
+import { LinkProvider, createLinkBus, type ToolbarValue } from '@acme/chart-react';
 import { RawChart, RawWorkspace } from './RawChart';
 
 const TVL_TYPE = 'deephaven.plot.tradingview_lightweight.TvlChart';
@@ -61,6 +61,8 @@ const WIDGET_TYPE = q.get('type') ?? 'deephaven.ui.Element';
 const USER = q.get('user') ?? browserOwner();
 const ANNOTATIONS = q.get('annotations') ?? 'chart_annotations';
 const ALERTS = q.get('alerts') ?? 'chart_alerts';
+/** the time zone our own charts show (group C): local (as Deephaven's chart does), UTC, or an IANA zone */
+const TZ = q.get('tz') ?? 'local';
 const EXT = (q.get('ext') ?? 'sync,lines,sessions,draw,alerts').split(',').filter(Boolean) as ExtensionName[];
 
 /**
@@ -189,7 +191,10 @@ function SingleWidget({ name, type }: { name: string; type: string }) {
 export default function App() {
   if (RAW) {
     const studies = (q.get('studies') ?? 'EMA_20').split(',').filter(Boolean);
-    return <RawChart table={RAW} sym={q.get('sym') ?? 'ES'} studies={studies} annotations={ANNOTATIONS} user={USER} />;
+    return (
+      <RawChart data={{ kind: 'table', table: RAW }} sym={q.get('sym') ?? 'ES'} studies={studies} annotations={ANNOTATIONS} user={USER}
+        timeZone={TZ} />
+    );
   }
   if (q.has('workspace')) {
     // group C with the toolbar: our own charts from the published bars_<res> tables
@@ -204,7 +209,13 @@ export default function App() {
 function RawWorkspacePage({ initial }: { initial: ToolbarValue }) {
   usePageAlertsAndSessions();
   const api = q.has('api') ? q.get('api') || 'chart_api' : null;
-  return <RawWorkspace symbols={SYMS} annotations={ANNOTATIONS} user={USER} initial={initial} apiName={api} />;
+  // the page's link bus: the watchlist and the chart share the symbol in group "red"
+  const bus = useMemo(() => createLinkBus(), []);
+  return (
+    <LinkProvider bus={bus}>
+      <RawWorkspace symbols={SYMS} annotations={ANNOTATIONS} user={USER} initial={initial} apiName={api} timeZone={TZ} />
+    </LinkProvider>
+  );
 }
 
 function Grid() {

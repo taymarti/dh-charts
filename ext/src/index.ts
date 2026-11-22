@@ -1,13 +1,15 @@
 /**
- * @acme/chart-ext: our chart features as plain Lightweight Charts plugins, plus the hook that applies
- * them to Deephaven's TradingView plugin charts, and annotation persistence. Shared, as source, by every host:
+ * @acme/chart-ext (layer 1, the chart component): our chart features as plain Lightweight Charts plugins,
+ * the hook that applies them to Deephaven's TradingView plugin charts (found by DOM events; no Deephaven
+ * import), and the interfaces they use for data and storage (AnnotationStore, AlertStore, sessions).
+ * Nothing here imports Deephaven: the implementations over Deephaven tables are @acme/dh-bindings.
+ * Shared, as source, by every host:
  *   web/        the standalone React host
  *   dh-plugin/  a server plugin that brings the same features to deephaven.ui
  */
 export { attachTvlExtensions, stats, type TvlChartContext, type TvlExtension, type TvlRenderer } from './hook';
 export { sessionShading, userPriceLines } from './extensions';
 export { bindSync, crosshairSync } from './sync';
-export { subscribeRows, type Row } from './table-rows';
 export { TimeRangeShading, alternatingBlocks, type RangesFor, type ShadedRange } from './lwc-plugins/time-range-shading';
 export { defaultExtensions, type ExtensionName } from './defaults';
 export {
@@ -16,7 +18,6 @@ export {
   onPageAnnotationStore,
   providePageAnnotationStore,
   setPageAnnotationStore,
-  tableAnnotationStore,
   type Annotation,
   type AnnotationInput,
   type AnnotationStore,
@@ -49,7 +50,6 @@ export {
   onPageAlertStore,
   providePageAlertStore,
   showAlertToasts,
-  tableAlertStore,
   type Alert,
   type AlertInput,
   type AlertKind,
@@ -57,3 +57,15 @@ export {
   type AlertStatus,
   type AlertStore,
 } from './alerts';
+export { applyChanges, memoryFeed, type FeedListener, type FeedRow, type MemoryFeed, type SeriesFeed } from './feed';
+export { formatTime, priceFormatFor, tickDecimals, timeFormatters, timeZoneOptions, type DisplayZone } from './format';
+export {
+  bindCompare,
+  bindFeed,
+  paneIndexes,
+  pointOf,
+  type DrawnFeed,
+  type FeedLayout,
+  type PriceType,
+  type StudyLayout,
+} from './price-chart';

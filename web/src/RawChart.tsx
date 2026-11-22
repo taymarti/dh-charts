@@ -1,44 +1,35 @@
 /**
  * Front-end group C: a React chart that uses only table data. No Deephaven UI objects, no Deephaven chart
- * plugin, no hook: the JS API reads a published L0 table (bars_<res>, every symbol, standard studies),
- * filters it to one symbol on the server, and this component draws its own Lightweight Charts chart.
- * Our LWC plugins from @acme/chart-ext attach to it directly.
+ * plugin: this component draws its own Lightweight Charts chart from a SeriesFeed (@acme/chart-ext's
+ * bindFeed), and our LWC plugins attach to it directly. The feed comes either from
  *
- *   ?raw=bars_1m&sym=ES&studies=EMA_20,BB_20_2_Upper,BB_20_2_Lower
+ *   the chart API (data = {kind: 'api'})    a shared node the server builds per request: any resolution,
+ *                                           any study parameters, spreads; studies in their own panes
+ *   a published table (data = {kind: 'table'})   bars_<res> filtered to the symbol on the server; its
+ *                                           standard study columns as overlays
  *
- * RawWorkspace adds @acme/chart-react's ChartToolbar on top, ChartLegend over the chart and Watchlist
- * on the right, with plain React state: symbol, interval (which bars_<res> table), overlay indicators
- * (which study columns), scale. No server round trip beyond re-subscribing: the studies are the
- * published standard set's columns, so the legend can show, hide and remove them but not change their
- * parameters (that needs Python: groups A and B). The watchlist subscribes the published `quotes` table.
+ *   ?raw=bars_1m&sym=ES&studies=EMA_20,BB_20_2_Upper,BB_20_2_Lower      one bare chart from a table
+ *   ?workspace&api&sym=NQ&tz=America/Chicago                            the workspace on the chart API
  *
- * Price lines and drawings persist through the same annotations table as the other front ends (bindPriceLines on
- * our own series, chart key = the symbol), so a line drawn here shows on every ES chart and vice versa.
+ * RawWorkspace adds @acme/chart-react's ChartToolbar on top, ChartLegend over the chart and a Watchlist or
+ * Alerts panel on the right. Its symbol is a linked value (the link bus, group "red"): the watchlist and
+ * the toolbar set it, the chart follows it. Compare (API only) overlays other symbols on a % scale.
  *
- * Bars arrive as Barrage deltas: a new bar is an added row, the forming bar a modified row; both go
- * through series.update(), which LWC handles incrementally for the last bar.
+ * Price lines and drawings persist through the same annotations table as the other front ends (chart key =
+ * the symbol), so a line drawn here shows on every ES chart and vice versa. Times are shown in `timeZone`
+ * ('local' by default, like Deephaven's own chart; 'UTC' or an IANA zone), prices by the instrument's tick.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useChartApi, type ChartApiClient, type StudySpec } from './chartApi';
 import { useApi } from '@deephaven/jsapi-bootstrap';
 import { useConnection } from '@deephaven/app-utils';
 import type { dh as Dh } from '@deephaven/jsapi-types';
-import {
-  CandlestickSeries,
-  ColorType,
-  CrosshairMode,
-  LineSeries,
-  PriceScaleMode,
-  type IChartApi,
-  createChart,
-  type ISeriesApi,
-  type SeriesType,
-  type UTCTimestamp,
-} from 'lightweight-charts';
+import { ColorType, CrosshairMode, PriceScaleMode, createChart, type IChartApi, type ISeriesApi, type SeriesType } from 'lightweight-charts';
 import {
   bindAlertLines,
+  bindCompare,
   bindCountdown,
   bindDrawings,
+  bindFeed,
   bindLegend,
   bindNavigation,
   bindPriceLines,
@@ -50,58 +41,69 @@ import {
   onPageAlertStore,
   onPageSessions,
   sessionSpecFor,
-  subscribeRows,
-  tableAnnotationStore,
+  timeZoneOptions,
   type AlertStore,
+  type DrawnFeed,
   type Navigation,
+  type SeriesFeed,
+  type StudyLayout,
 } from '@acme/chart-ext';
+import { requestChart, subscribeRows, tableAnnotationStore, tableFeed, type ApiClient } from '@acme/dh-bindings';
 import {
   AlertsPanel,
   ChartLegend,
   ChartToolbar,
   Watchlist,
+  useLink,
   type LegendStatus,
   type LegendStudy,
   type ToolbarOptions,
   type ToolbarValue,
   type WatchlistRow,
 } from '@acme/chart-react';
+import { useChartApi } from './chartApi';
 
-const COLORS = ['#f7a600', '#ab47bc', '#00bcd4', '#8bc34a'];
+const COLORS = ['#f7a600', '#ab47bc', '#00bcd4', '#8bc34a', '#ff7043', '#90a4ae'];
+const COMPARE_COLORS = ['#2962ff', '#e91e63', '#00bcd4', '#8bc34a'];
 
-const num = (x: unknown) =>
-  x != null && typeof x === 'object' && 'asNumber' in (x as object) ? (x as { asNumber(): number }).asNumber() : (x as number);
+/** Where a chart's data comes from. */
+export type ChartData = { kind: 'table'; table: string } | { kind: 'api'; client: ApiClient };
 
 export function RawChart({
-  table: name,
+  data,
   sym,
+  res = '1m',
   studies,
+  colorOf = (_s, i) => COLORS[i % COLORS.length],
+  compare = [],
   annotations,
   user,
   scale = 'normal',
-  colors = COLORS,
+  timeZone = 'local',
   onChart,
   viewWindow,
   barSeconds,
-  api,
 }: {
-  table: string;
+  data: ChartData;
   sym: string;
+  res?: string;
+  /** API: study keys ("EMA_20", "RSI_14", "Volume"); table: the study columns to draw as overlays */
   studies: string[];
+  /** a color per study (API: the study key; table: the column) */
+  colorOf?: (study: string, index: number) => string;
+  /** symbols to overlay as lines of their closes (API only) */
+  compare?: { sym: string; color: string }[];
   annotations: string;
   user: string;
   scale?: string;
-  /** one color per study column */
-  colors?: string[];
+  /** 'local' (default), 'UTC' or an IANA zone */
+  timeZone?: string;
   /** with it, the host draws the legend (ChartLegend) from the chart and series it gets here */
   onChart?: (lwc: { chart: IChartApi; series: ISeriesApi<SeriesType>[] } | null) => void;
-  /** seconds to show at the end of the data (null: all); the whole history is loaded either way */
+  /** seconds to show at the end of the data (null: all) */
   viewWindow?: number | null;
   /** bar length, for the bar-close countdown */
   barSeconds?: number;
-  /** with it, the chart's table comes from the server's chart API (any resolution, spreads, shared nodes)
-   * instead of the published `table` filtered to `sym`; `studies` must then be the columns of `api.studies` */
-  api?: { client: ChartApiClient; res: string; studies: StudySpec[] };
 }) {
   const nav = useRef<Navigation | null>(null);
   const windowRef = useRef(viewWindow);
@@ -110,150 +112,170 @@ export function RawChart({
   const connection = useConnection();
   const el = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
+  const studiesKey = studies.join(',');
+  const compareKey = compare.map(c => `${c.sym}:${c.color}`).join(',');
+  const client = data.kind === 'api' ? data.client : null;
+  const table = data.kind === 'table' ? data.table : null;
 
   useEffect(() => {
+    const zone = timeZoneOptions(timeZone);
     const chart = createChart(el.current!, {
       autoSize: true,
       layout: { background: { type: ColorType.Solid, color: '#131722' }, textColor: '#d1d4dc', attributionLogo: false },
       grid: { vertLines: { color: '#1e222d' }, horzLines: { color: '#1e222d' } },
       crosshair: { mode: CrosshairMode.Normal },
+      localization: zone.localization,
       // minBarSpacing: let days of 1-minute bars fit the width (the default 0.5 px caps a view at ~1500 bars)
-      timeScale: { timeVisible: true, secondsVisible: true, minBarSpacing: 0.01 },
+      timeScale: { timeVisible: true, secondsVisible: true, minBarSpacing: 0.01, ...zone.timeScale },
     });
     chartRef.current = chart;
-    const candles = chart.addSeries(CandlestickSeries, {
-      upColor: '#26a69a', downColor: '#ef5350', borderVisible: false, wickUpColor: '#26a69a', wickDownColor: '#ef5350',
-      title: sym,
-    });
-    // titled with their column, so a legend can find them
-    const lines: ISeriesApi<'Line'>[] = studies.map((c, i) =>
-      chart.addSeries(LineSeries, {
-        color: colors[i % colors.length], lineWidth: 1, lastValueVisible: false, priceLineVisible: false, title: c,
-      }),
-    );
-    // our plugins, attached directly: no Deephaven involved
-    const unbindSessions = bindSessionShading(candles, sym); // the page's calendar (the `sessions` table)
-    const unbindLegend = onChart ? () => {} : bindLegend(chart, candles, el.current!, sym);
-    const unbindSync = bindSync(chart, candles, el.current!);
-    // the user's active price alerts, from the page's alert store (the published chart_alerts)
-    let unbindAlerts = () => {};
-    const offAlerts = onPageAlertStore(s => {
-      unbindAlerts();
-      unbindAlerts = s ? bindAlertLines(candles, s, sym) : () => {};
-    });
-    // this chart holds the symbol's whole history, so navigation never needs to load more
-    const navigation = bindNavigation(chart, candles, el.current!, { viewWindow: windowRef.current ?? null, historyComplete: true, settleMs: 0 });
-    nav.current = navigation;
-    const unbindCountdown = barSeconds ? bindCountdown(chart, candles, el.current!, barSeconds) : () => {};
-    onChart?.({ chart, series: [candles, ...lines] });
-
     let closed = false;
-    let cleanup = () => {};
-    let unbindLines = () => {};
-    // persistent price lines, if the server publishes the annotations table
-    connection
-      .getObject({ type: dh.VariableType.TABLE, name: annotations } as never)
-      .then(obj => {
-        const at = obj as Dh.Table;
+    const cleanups: (() => void)[] = [];
+
+    (async () => {
+      // the data: a shared node from the chart API, or a published table filtered to the symbol
+      let feed: SeriesFeed;
+      let layout: StudyLayout[];
+      let tick: number | null = null;
+      if (client) {
+        const keys = studies.filter(s => s !== 'Volume');
+        const h = await requestChart(dh, client, { sym, res, studies: keys, volume: studies.includes('Volume') });
+        if (closed) return h.release();
+        cleanups.push(h.release);
+        feed = h.feed;
+        tick = h.tick;
+        layout = h.studies.map(s => {
+          const study = h.columns.find(c => c.column === s.column)?.study ?? s.column;
+          const i = Math.max(0, studies.indexOf(study));
+          return { ...s, color: s.histogram ? undefined : colorOf(study, i) };
+        });
+      } else {
+        const t = (await connection.getObject({ type: dh.VariableType.TABLE, name: table } as never)) as Dh.Table;
+        if (closed) return t.close();
+        t.applyFilter([t.findColumn('Sym').filter().eq(dh.FilterValue.ofString(sym))]); // server-side
+        cleanups.push(() => t.close());
+        feed = tableFeed(dh, t, ['Open', 'High', 'Low', 'Close', 'Volume', ...studies]);
+        layout = studies.map((c, i) => ({ column: c, color: colorOf(c, i), dashed: c.endsWith('_Mid') }));
+      }
+      const drawn: DrawnFeed = bindFeed(chart, feed, { price: { type: 'candle', title: sym, tick }, studies: layout });
+      cleanups.push(drawn.dispose);
+      const price = drawn.series[0];
+
+      // compared symbols: each its own shared node, a line of its closes
+      const compared: ISeriesApi<SeriesType>[] = [];
+      if (client)
+        for (const c of compare) {
+          const h = await requestChart(dh, client, { sym: c.sym, res });
+          if (closed) return h.release();
+          const d = bindCompare(chart, h.feed, { title: c.sym, color: c.color });
+          cleanups.push(() => {
+            d.dispose();
+            h.release();
+          });
+          compared.push(...d.series);
+        }
+
+      // our plugins, attached directly: no Deephaven involved
+      cleanups.push(bindSessionShading(price, sym)); // the page's calendar (the `sessions` table)
+      if (!onChart) cleanups.push(bindLegend(chart, price, el.current!, sym));
+      cleanups.push(bindSync(chart, price, el.current!));
+      let unbindAlerts = () => {};
+      cleanups.push(
+        onPageAlertStore(s => {
+          unbindAlerts();
+          unbindAlerts = s ? bindAlertLines(price, s, sym) : () => {};
+        }),
+      );
+      cleanups.push(() => unbindAlerts());
+      // this chart holds the symbol's whole history, so navigation never needs to load more
+      const navigation = bindNavigation(chart, price, el.current!, { viewWindow: windowRef.current ?? null, historyComplete: true, settleMs: 0 });
+      nav.current = navigation;
+      cleanups.push(() => {
+        navigation.dispose();
+        nav.current = null;
+      });
+      if (barSeconds) cleanups.push(bindCountdown(chart, price, el.current!, barSeconds));
+      onChart?.({ chart, series: [...drawn.series, ...compared] });
+      applyScale(chart, scale, compare.length > 0);
+
+      // persistent price lines and drawings, if the server publishes the annotations table
+      try {
+        const at = (await connection.getObject({ type: dh.VariableType.TABLE, name: annotations } as never)) as Dh.Table;
         if (closed) return at.close();
         const store = tableAnnotationStore(dh, at, user);
-        const unbind = bindPriceLines(chart, candles, store, sym);
-        const unbindDrawings = bindDrawings(chart, candles, store, sym, el.current!);
-        unbindLines = () => {
+        const unbind = bindPriceLines(chart, price, store, sym);
+        const unbindDrawings = bindDrawings(chart, price, store, sym, el.current!);
+        cleanups.push(() => {
           unbindDrawings();
           unbind();
           store.close();
           at.close();
-        };
-      })
-      .catch(() => {});
-    (async () => {
-      let t: Dh.Table;
-      let release = () => t.close();
-      if (api) {
-        // a shared node on the server, built on first request (one symbol: no filter needed)
-        const h = await api.client.chart(sym, api.res, api.studies);
-        if (closed) return h.release();
-        t = h.table;
-        release = h.release;
-      } else {
-        t = (await connection.getObject({ type: dh.VariableType.TABLE, name } as never)) as Dh.Table;
-        if (closed) return t.close();
-        t.applyFilter([t.findColumn('Sym').filter().eq(dh.FilterValue.ofString(sym))]); // server-side
+        });
+      } catch {
+        /* no annotations table on this server */
       }
-      const cols = ['Timestamp', 'Open', 'High', 'Low', 'Close', ...studies].map(c => t.findColumn(c));
-      const sub = t.subscribe(cols);
-      let first = true;
-      sub.addEventListener(dh.Table.EVENT_UPDATED, ev => {
-        const data = (ev as CustomEvent).detail as Dh.SubscriptionTableData;
-        const rows: number[][] = [];
-        for (const rs of first ? [data.fullIndex] : [data.added, data.modified])
-          for (const it = rs.iterator(); it.hasNext(); ) {
-            const k = it.next().value;
-            rows.push(cols.map(c => num(data.getData(k, c))));
-          }
-        rows.sort((a, b) => a[0] - b[0]);
-        const bar = (r: number[]) => ({ time: (r[0] / 1e9) as UTCTimestamp, open: r[1], high: r[2], low: r[3], close: r[4] });
-        const pt = (r: number[], i: number) =>
-          Number.isFinite(r[5 + i]) ? { time: (r[0] / 1e9) as UTCTimestamp, value: r[5 + i] } : { time: (r[0] / 1e9) as UTCTimestamp };
-        if (first) {
-          candles.setData(rows.map(bar));
-          lines.forEach((l, i) => l.setData(rows.map(r => pt(r, i))));
-          first = false;
-        } else {
-          for (const r of rows) {
-            candles.update(bar(r));
-            lines.forEach((l, i) => l.update(pt(r, i)));
-          }
-        }
-      });
-      cleanup = () => {
-        sub.close();
-        release();
-      };
     })().catch(e => console.warn('chart data failed', e));
+
     return () => {
       closed = true;
-      cleanup();
-      unbindLines(); // before chart.remove(): it detaches from the series
-      unbindLegend();
-      unbindSync();
-      unbindSessions();
-      offAlerts();
-      unbindAlerts();
-      navigation.dispose();
-      nav.current = null;
-      unbindCountdown();
+      // last bound, first released: plugins detach from the series before the series and data go
+      for (const c of [...cleanups].reverse()) {
+        try {
+          c();
+        } catch {
+          /* already gone */
+        }
+      }
       onChart?.(null);
       chartRef.current = null;
       chart.remove();
     };
-  }, [dh, connection, name, sym, studies.join(','), colors.join(','), annotations, user, barSeconds, api?.client, api?.res,
-      JSON.stringify(api?.studies)]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dh, connection, client, table, sym, res, studiesKey, compareKey, annotations, user, barSeconds, timeZone]);
 
   useEffect(() => nav.current?.update({ viewWindow: viewWindow ?? null }), [viewWindow]);
 
   // the price scale mode follows `scale` without rebuilding the chart
   useEffect(() => {
-    chartRef.current?.priceScale('right').applyOptions({
-      mode: scale === 'log' ? PriceScaleMode.Logarithmic : scale === 'percent' ? PriceScaleMode.Percentage : PriceScaleMode.Normal,
-    });
-  }, [scale, name, sym]);
+    if (chartRef.current) applyScale(chartRef.current, scale, compare.length > 0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scale, compareKey]);
 
   return <div ref={el} style={{ position: 'absolute', inset: 0 }} />;
 }
 
+/** Comparing only makes sense in percent: compared symbols switch a normal scale to percent. */
+function applyScale(chart: IChartApi, scale: string, comparing: boolean) {
+  const s = comparing && scale === 'normal' ? 'percent' : scale;
+  try {
+    chart.priceScale('right', 0).applyOptions({
+      mode: s === 'log' ? PriceScaleMode.Logarithmic : s === 'percent' ? PriceScaleMode.Percentage : PriceScaleMode.Normal,
+    });
+    // study panes (RSI, volume) keep a linear scale: each pane has its own right scale
+    for (let i = 1; i < chart.panes().length; i++) chart.priceScale('right', i).applyOptions({ mode: PriceScaleMode.Normal });
+  } catch {
+    /* the chart is being rebuilt */
+  }
+}
+
 // ----------------------------------------------------------------------------- with the toolbar
 
+/** Columns per standard study key (the published tables' columns; the API's are the same). */
 const STUDY_COLUMNS: Record<string, string[]> = {
   EMA_20: ['EMA_20'],
   EMA_50: ['EMA_50'],
   SMA_20: ['SMA_20'],
   BB_20_2: ['BB_20_2_Upper', 'BB_20_2_Mid', 'BB_20_2_Lower'],
   VWAP: ['VWAP'],
+  RSI_14: ['RSI_14'],
+  Volume: ['Volume'],
 };
-const STUDY_LABELS: Record<string, string> = { EMA_20: 'EMA 20', EMA_50: 'EMA 50', SMA_20: 'SMA 20', BB_20_2: 'BB 20 2', VWAP: 'VWAP' };
+const STUDY_LABELS: Record<string, string> = {
+  EMA_20: 'EMA 20', EMA_50: 'EMA 50', SMA_20: 'SMA 20', BB_20_2: 'BB 20 2', VWAP: 'VWAP', RSI_14: 'RSI 14', Volume: 'Volume',
+};
 const STUDY_ORDER = Object.keys(STUDY_COLUMNS);
+/** what a published bars_<res> table has (RSI and Volume need panes: API only) */
+const TABLE_STUDIES = ['EMA_20', 'EMA_50', 'SMA_20', 'BB_20_2', 'VWAP'];
 
 /** Rows of a published quotes table (Sym, Last, Chg, ChgPct), live. */
 function useQuotes(name: string): WatchlistRow[] {
@@ -293,8 +315,9 @@ const secsOf = (r: string) => Number(r.slice(0, -1)) * ({ s: 1, m: 60, h: 3600, 
 function toolbarOptions(symbols: string[], api: boolean): ToolbarOptions {
   return {
     symbols: symbols.map(s => ({ key: s, label: s })),
-    // with the API, a typed spread or ratio (ES-NQ, ZN/ZB) is an instrument too
+    // with the API, a typed spread or ratio (ES-NQ, ZN/ZB) is an instrument too, and other symbols can be compared
     expressions: api,
+    compare: api,
     resolutions: (api ? API_RESOLUTIONS : TABLE_RESOLUTIONS).map(r => ({
       key: r, label: r, group: secsOf(r) < 60 ? 'Seconds' : secsOf(r) < 3600 ? 'Minutes' : 'Hours',
     })),
@@ -304,6 +327,12 @@ function toolbarOptions(symbols: string[], api: boolean): ToolbarOptions {
       { key: 'SMA_20', label: 'SMA 20', group: 'Moving averages' },
       { key: 'BB_20_2', label: 'Bollinger Bands (20, 2)', group: 'Bands and channels' },
       { key: 'VWAP', label: 'VWAP', group: 'Volume' },
+      ...(api
+        ? [
+            { key: 'RSI_14', label: 'Relative Strength Index (14)', group: 'Oscillators' },
+            { key: 'Volume', label: 'Volume', group: 'Volume' },
+          ]
+        : []),
     ],
     ranges: Object.keys(RANGES).map(k => ({ key: k, label: k })),
     scales: true,
@@ -370,13 +399,15 @@ function PageAlerts({ symbol }: { symbol: string }) {
   );
 }
 
-/** Group C's workspace: ChartToolbar + RawChart, all state in React. */
+/** Group C's workspace: ChartToolbar + RawChart, state in React; the symbol on the link bus (needs a LinkProvider). */
 export function RawWorkspace({
   symbols,
   annotations,
   user,
   initial,
   apiName = null,
+  timeZone = 'local',
+  linkGroup = 'red',
 }: {
   symbols: string[];
   annotations: string;
@@ -384,44 +415,67 @@ export function RawWorkspace({
   initial: ToolbarValue;
   /** the published chart API to load charts through (null: the published bars_<res> tables) */
   apiName?: string | null;
+  timeZone?: string;
+  /** the link group the symbol is shared in (null: not linked) */
+  linkGroup?: string | null;
 }) {
-  const client = useChartApi(apiName);
+  const client = useChartApi(apiName, user);
+  const api = apiName != null;
   const [value, setValue] = useState<ToolbarValue>({ panel: 'watchlist', range: '4h', ...initial });
+  const [sym, setSym] = useLink<string>('symbol', { group: linkGroup, initial: initial.symbol ?? symbols[0] });
   const [hidden, setHidden] = useState<string[]>([]);
+  const [compare, setCompare] = useState<{ sym: string; color: string; visible: boolean }[]>([]);
   const [lwc, setLwc] = useState<{ chart: IChartApi; series: ISeriesApi<SeriesType>[] } | null>(null);
   const quotes = useQuotes('quotes');
-  const sym = value.symbol ?? symbols[0];
   const status = useMarketStatus(sym);
-  const keys = value.studies ?? [];
-  // a color per study, kept when others are added or hidden; the chart gets one per column
-  const colorOf = (k: string) => COLORS[STUDY_ORDER.indexOf(k) % COLORS.length];
+  const res = value.resolution ?? '1m';
+  const keys = (value.studies ?? []).filter(k => api || TABLE_STUDIES.includes(k));
+  // a color per study, kept when others are added or hidden
+  const colorOf = (k: string) => COLORS[Math.max(0, STUDY_ORDER.indexOf(k)) % COLORS.length];
   const shown = keys.filter(k => !hidden.includes(k));
-  const columns = shown.flatMap(k => STUDY_COLUMNS[k] ?? []);
-  const colors = shown.flatMap(k => (STUDY_COLUMNS[k] ?? []).map(() => colorOf(k)));
+  const shownCompare = compare.filter(c => c.visible).map(({ sym: s, color }) => ({ sym: s, color }));
   const legend: LegendStudy[] = useMemo(
-    () =>
-      keys.map(k => ({ id: k, label: STUDY_LABELS[k] ?? k, columns: STUDY_COLUMNS[k] ?? [], color: colorOf(k), visible: !hidden.includes(k) })),
+    () => [
+      ...keys.map(k => ({ id: k, label: STUDY_LABELS[k] ?? k, columns: STUDY_COLUMNS[k] ?? [k], color: colorOf(k), visible: !hidden.includes(k) })),
+      ...compare.map(c => ({ id: `cmp:${c.sym}`, label: c.sym, columns: [c.sym], color: c.color, visible: c.visible, kind: 'compare' as const })),
+    ],
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [keys.join(','), hidden.join(',')],
+    [keys.join(','), hidden.join(','), JSON.stringify(compare)],
   );
+  const onToolbar = (patch: ToolbarValue) => {
+    const { symbol, addCompare, ...rest } = patch;
+    if (symbol) setSym(symbol);
+    if (addCompare && addCompare !== sym)
+      setCompare(cs =>
+        cs.some(c => c.sym === addCompare)
+          ? cs
+          : [...cs, { sym: addCompare, color: COMPARE_COLORS.find(col => !cs.some(c => c.color === col)) ?? COMPARE_COLORS[0], visible: true }],
+      );
+    setValue(v => ({ ...v, ...rest }));
+  };
+  const scaleShown = shownCompare.length && (value.scale ?? 'normal') === 'normal' ? 'percent' : value.scale;
   return (
     <div style={{ position: 'absolute', inset: 0, display: 'flex', background: '#131722' }}>
       <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
-        <ChartToolbar value={value} options={toolbarOptions(symbols, apiName != null)} onChange={patch => setValue(v => ({ ...v, ...patch }))} />
+        <ChartToolbar value={{ ...value, symbol: sym, studies: keys, scale: scaleShown }} options={toolbarOptions(symbols, api)} onChange={onToolbar} />
         <div style={{ position: 'relative', flex: 1 }}>
-          {apiName != null && client == null ? null : <RawChart
-            table={`bars_${value.resolution ?? '1m'}`}
-            api={client ? { client, res: value.resolution ?? '1m', studies: shown } : undefined}
-            sym={sym}
-            studies={columns}
-            colors={colors}
-            annotations={annotations}
-            user={user}
-            scale={value.scale}
-            onChart={setLwc}
-            viewWindow={RANGES[value.range ?? '4h'] ?? null}
-            barSeconds={secsOf(value.resolution ?? '1m')}
-          />}
+          {api && client == null ? null : (
+            <RawChart
+              data={client ? { kind: 'api', client } : { kind: 'table', table: `bars_${res}` }}
+              sym={sym}
+              res={res}
+              studies={client ? shown : shown.flatMap(k => STUDY_COLUMNS[k] ?? [])}
+              colorOf={client ? s => colorOf(s) : c => colorOf(keys.find(k => (STUDY_COLUMNS[k] ?? []).includes(c)) ?? c)}
+              compare={shownCompare}
+              annotations={annotations}
+              user={user}
+              scale={value.scale}
+              timeZone={timeZone}
+              onChart={setLwc}
+              viewWindow={RANGES[value.range ?? '4h'] ?? null}
+              barSeconds={secsOf(res)}
+            />
+          )}
           <ChartLegend
             chart={lwc?.chart ?? null}
             series={lwc?.series ?? []}
@@ -429,6 +483,12 @@ export function RawWorkspace({
             status={status}
             studies={legend}
             onStudyChange={p => {
+              if (p.id.startsWith('cmp:')) {
+                const s = p.id.slice(4);
+                if (p.remove) setCompare(cs => cs.filter(c => c.sym !== s));
+                if (p.visible !== undefined) setCompare(cs => cs.map(c => (c.sym === s ? { ...c, visible: !!p.visible } : c)));
+                return;
+              }
               if (p.remove) setValue(v => ({ ...v, studies: (v.studies ?? []).filter(k => k !== p.id) }));
               if (p.visible !== undefined) setHidden(h => (p.visible ? h.filter(k => k !== p.id) : [...h, p.id]));
             }}
@@ -437,7 +497,7 @@ export function RawWorkspace({
       </div>
       {value.panel === 'watchlist' && (
         <div style={{ width: 280, flex: 'none' }}>
-          <Watchlist rows={quotes} selected={sym} onSelect={symbol => setValue(v => ({ ...v, symbol }))} />
+          <Watchlist rows={quotes} selected={sym} onSelect={setSym} />
         </div>
       )}
       {value.panel === 'alerts' && (

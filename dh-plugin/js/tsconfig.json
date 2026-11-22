@@ -21,6 +21,9 @@
       ],
       "@acme/chart-react": [
         "../../react/src/index.ts"
+      ],
+      "@acme/dh-bindings": [
+        "../../bindings/src/index.ts"
       ]
     },
     "jsx": "react-jsx"

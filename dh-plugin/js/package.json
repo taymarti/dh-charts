@@ -11,6 +11,7 @@
   "dependencies": {
     "@acme/chart-ext": "file:../../ext",
     "@acme/chart-react": "file:../../react",
+    "@acme/dh-bindings": "file:../../bindings",
     "lightweight-charts": "5.2.0"
   },
   "devDependencies": {

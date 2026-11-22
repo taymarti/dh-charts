@@ -63,14 +63,17 @@ Findings from building it:
 
 | Path | What it is |
 |---|---|
-| `ext/` | **`@acme/chart-ext`**: our features as LWC plugins, the hook that applies them to Deephaven's charts, and the annotation store. In-repo hosts compile its source (a Vite alias); `npm pack` builds the distributable package (`dist/`), published as a tarball in [lwc-vendor](https://github.com/taymarti/lwc-vendor) `acme/` |
+| `ext/` | **`@acme/chart-ext`** (layer 1, the chart component): our features as LWC plugins, `SeriesFeed` and `bindFeed` (any data source drawn as price + studies in panes), time-zone and tick-size formats, the store interfaces, and the hook that applies the plugins to Deephaven's charts. No Deephaven dependency. In-repo hosts compile its source (a Vite alias); `npm pack` builds the distributable package (`dist/`), published as a tarball in [lwc-vendor](https://github.com/taymarti/lwc-vendor) `acme/` |
+| `bindings/` | **`@acme/dh-bindings`** (layer 2): the chart component's interfaces over Deephaven: `tableAnnotationStore`, `tableAlertStore`, `subscribeRows`, `tableFeed` (a `SeriesFeed` over a table), `ApiClient` / `openApi` (the request API) and `requestChart` |
 | `web/` | **React host** (pattern A): Deephaven's own chart component in a standalone React app, through `WidgetView`. The plugin's JS comes from the server, so there is nothing to vendor and no npm package |
-| `react/` | **`@acme/chart-react`**: React components for trading charts, starting with `ChartToolbar`. Styles are injected by the component (no CSS build). In-repo hosts compile its source; `npm pack` builds the distributable package |
+| `react/` | **`@acme/chart-react`** (layer 3, the app shell): `ChartToolbar`, `ChartLegend`, `Watchlist`, `AlertsPanel`, and the link bus (`createLinkBus`, `LinkProvider`, `useLink`): values widgets share per link group. Styles are injected by the component (no CSS build). In-repo hosts compile its source; `npm pack` builds the distributable package |
 | `dh-plugin/` | **`dh-chart-ext`**: a Python package that registers a JS plugin with the Deephaven server and brings `@acme/chart-ext` to every Deephaven web UI, deephaven.ui dashboards included |
 | (fork) | Our changes to Deephaven's plugin live in [taymarti/deephaven-plugins](https://github.com/taymarti/deephaven-plugins/tree/acme/tradingview-lightweight), branch `acme/tradingview-lightweight` (see "The fork" below) |
 | `dh-plugin/src/dh_chart_ext/` `data.py` `charts.py` `workspace.py` | The Python layers L0, L1 and L2 |
-| `dh-plugin/src/dh_chart_ext/` `cache.py` `nodes.py` `api.py` | Charts on demand: shared, reference-counted DAG nodes (`NodeCache`, `ChartNodes`) and the chart API object type (`acme.chart.Api`) that serves them to JS clients |
-| `web/src/chartApi.ts` | The JS client for the chart API (`useChartApi`, `ChartApiClient.chart()`) |
+| `dh-plugin/src/dh_chart_ext/` `rpc.py` `tokens.py` | The request API framework: handlers registered on an `rpc.Api` (type `acme.Api`), JSON over one plugin stream per client, parameter validation from type hints, `describe`, identity (`hello` with signed tokens), holds with leases and limits |
+| `dh-plugin/src/dh_chart_ext/` `cache.py` `nodes.py` `api.py` `instruments.py` | Charts on demand: shared, reference-counted DAG nodes (`NodeCache` with limits and a live metrics table, `ChartNodes`), the chart handlers (`api.ChartApi`, an `rpc.Api`), tick sizes per instrument |
+| `web/src/chartApi.ts` | The React hook for the page's API client (`useChartApi`) |
+| `tests/`, `*/test/`, `.github/workflows/ci.yml` | pytest protocol tests against a live server, vitest unit tests per package, and CI running both |
 | `docs/component-map.md` | Every piece, built or plausible, by layer (chart component, Deephaven bindings, app shell, server framework), with scenarios and open decisions |
 | `app.d/` | Demo app: the benchmark's 16 synthetic feeds, the L0 standard set, `chart_ES` (L1), `ws` and `ws_grid` (L2) |
 
@@ -114,19 +117,29 @@ for a grace period (60 s; a reload reuses it), then released with its idle paren
 updating it. Server cost then follows the number of distinct charts on screen, not users × charts, and
 falls back when people leave. Per-client parts stay per client and cheap (a pane's lookback, zoom).
 
-**The chart API** (`api.ChartApi`, published as `chart_api`) is a Deephaven object type with a message
-stream per client: JSON requests (`chart`, `bars`, `release`, `symbols`, `stats`, `whoami`) answered with
-JSON and, for a chart, a reference to its node, which the client subscribes to over Barrage like any
-table. It is how front ends that draw their own charts get any resolution, studies and spreads without
-running Python per user: `web/src/chartApi.ts` is the client. Requests run on Deephaven's concurrent
-executor, one at a time per stream, under the stream's execution context. Measured: a cold `NQ 2m EMA 20`
+**The request API** (`rpc.Api`, type `acme.Api`) is a Deephaven object type with a message stream per
+client. Handlers are Python functions registered with `@api.method`; their type hints validate the
+request's parameters, and `describe` lists them for clients. Requests are JSON (`{id, method, params}`),
+answered with JSON (`{id, result}` or `{id, error, code}`) and, for methods that return tables, table
+references the client subscribes to over Barrage like any table. Built in: `hello` (who the user is),
+`describe`, `ping`, `release`, `whoami`. A handler ties resources to the stream with `ctx.hold(key,
+release)`, within limits per stream and per user. Requests run on Deephaven's concurrent executor, one at
+a time per stream, under the stream's execution context. `@acme/dh-bindings`' `ApiClient` is the client.
+
+**The chart API** (`api.ChartApi`, published as `chart_api`) is an `rpc.Api` with chart handlers:
+`chart {sym, res, studies}` answers with the shared node and how to draw it (each study column's pane and
+reference levels, the instrument's tick size); also `bars`, `symbols`, `resolutions`, `studies`, `stats`.
+It is how front ends that draw their own charts get any resolution, studies and spreads without running
+Python per user. `chart_nodes` is the node cache as a live table. Measured: a cold `NQ 2m EMA 20`
 builds in 0.9 s, a second client's identical request returns the same node in about 10 ms, and the cold
 `ES-NQ` spread takes about 4 s (its tick history).
 
 Who is asking: the handlers can read the caller's auth context (`whoami`), but on Community it carries no
 user: anonymous logins all show `AuthContext$Anonymous` (verified), and PSK logins share one context too
-(per the source). A user id must come from a token the client sends and the server verifies, or from a
-custom Java authentication handler.
+(per the source). So `hello` takes a token: with `ACME_API_SECRET` set on the server it must be signed
+(`tokens.sign_token`, HMAC-SHA256 with an expiry, issued by whatever logs users in); without it, an
+unverified `user:<name>` is accepted for attribution, as on Community today. A custom Java authentication
+handler is the stronger alternative.
 
 Leases: a browser tab that navigates away was never reported to the plugin (no `on_close` after 11
 minutes, well past the session's expiry), so its nodes would leak. Every stream therefore has a lease
@@ -139,7 +152,8 @@ What each group gets, feature by feature:
 | Feature | A deephaven.ui | B React + `WidgetView` | C React, table data |
 |---|---|---|---|
 | Legend rows: show/hide, remove | ✓ (Python state) | ✓ (same element) | ✓ (React state) |
-| Study settings (length, multiplier, color), several instances of one study | ✓ recomputed in Python (`update_by`) | ✓ | the standard set's fixed columns; with the chart API any parameters (`{type, params}`), UI not built yet |
+| Study settings (length, multiplier, color), several instances of one study | ✓ recomputed in Python (`update_by`) | ✓ | the standard set's fixed columns; with the chart API any parameters (`{type, params}`), settings UI not built yet |
+| Studies in their own panes (RSI with 30/70 levels, volume) | ✓ | ✓ | ✓ with `?workspace&api` (`bindFeed` panes, from the API's column descriptions) |
 | Watchlist | ✓ `acme.chart.Watchlist` over `source.quotes` | ✓ | ✓ `Watchlist` + `subscribeRows` over the published `quotes` |
 | Multi-chart layouts (1, 2, 3, 4) with symbol / interval sync | ✓ Python state per pane | ✓ | not built yet: the parts exist (`RawChart`, `bindSync`, the toolbar's layout menu) |
 | Crosshair and time sync | ✓ by `data-acme-sync-*` attributes the frame sets | ✓ | ✓ `bindSync` (page group) |
@@ -147,7 +161,9 @@ What each group gets, feature by feature:
 | History: initial view window, scroll back for more, jump to now, go to date | ✓ the pane's `Lookback` grows on the server as you scroll; the chart is not rebuilt | ✓ | ✓ the chart loads the symbol's whole published history up front (no paging needed at this size) |
 | Alerts: price, drawn line, study value; lines, Alerts panel, toast when one fires | ✓ evaluated by `AlertEngine` on the server | ✓ | ✓ the same `chart_alerts` table and engine: one set of alerts across all front ends |
 | Sessions: shading of closed / extended hours, market status, bar-close countdown | ✓ calendar passed by the workspace | ✓ | ✓ from the published `sessions` table |
-| Compare (overlay on a % scale) | ✓ | ✓ | not built: needs a second subscription per compared symbol |
+| Compare (overlay on a % scale) | ✓ | ✓ | ✓ with `?workspace&api` (`bindCompare`, a second shared node per compared symbol) |
+| Display time zone; prices by tick size | local time (Deephaven's plugin) | local time | ✓ `&tz=` (local by default, UTC or an IANA zone); tick size from the API (`instruments`) |
+| Symbol linking (watchlist → chart) | ✓ Python state | ✓ | ✓ the link bus (`useLink('symbol', {group: 'red'})`) |
 | Spreads and ratios (`ES-NQ`, `ZN/ZB`, `2*ZN-ZB`) | ✓ computed in Deephaven from the legs' ticks | ✓ | ✓ with `?workspace&api`: the chart API builds the spread's node |
 | Any interval (2m, 15m, 30m, 1h, 15s) | ✓ shared nodes, rolled up from standard bars | ✓ | ✓ with `?workspace&api` (else the four published resolutions) |
 
@@ -274,7 +290,7 @@ below; npm takes those packages from its cache.
 python -m venv .venv
 .venv\Scripts\python -m pip install -r requirements-server.txt
 .venv\Scripts\python -m pip install -e dh-plugin
-npm --prefix ext install
+npm --prefix ext install; npm --prefix bindings install; npm --prefix react install
 npm --prefix dh-plugin/js install; npm --prefix dh-plugin/js run build
 # the workspace demo (app.d); restart the server after any plugin rebuild
 $env:PERF_FLATTEN = "1"
@@ -287,7 +303,8 @@ The demo (`app.d`), per front-end group:
 - B, React with Deephaven UI objects: `http://localhost:4050/?widget=ws`, or
   `?widget=chart_ES&type=deephaven.plot.tradingview_lightweight.TvlChart`
 - C, React with table data only: `http://localhost:4050/?workspace&sym=NQ` (toolbar, legend, watchlist,
-  alerts, sessions), `?workspace&api&sym=NQ` for charts from the chart API (any interval, spreads), or one
+  alerts, sessions), `?workspace&api&sym=NQ` for charts from the chart API (any interval, spreads, RSI and
+  volume panes, compare; `&tz=America/Chicago` for the exchange's time), or one
   bare chart: `?raw=bars_1m&sym=ES&studies=EMA_20,BB_20_2_Upper,BB_20_2_Lower`
 - The chart API from Python: `pydeephaven` `Session.plugin_client(session.exportable_objects["chart_api"])`,
   then JSON requests on its `req_stream` (the browser console has `window.chartApi` on an `&api` page)
@@ -298,11 +315,27 @@ after "Deephaven is up" before the first workspace opens; later opens take a few
 `--app-dir perf/app.d` runs the benchmark's app instead (`dash_tvl_1s`, `tvl1s_<SYM>`, 16 charts per
 dashboard); `perf/README.md` has the benchmark.
 
+## Tests
+
+```powershell
+# unit tests, no server (each JS package; Python's token checks)
+npm --prefix ext test; npm --prefix bindings test; npm --prefix react test
+.venv\Scripts\python -m pytest tests/test_tokens.py
+# protocol tests against the running demo server (DH_TEST_PORT, default 10040); DH_SLOW=1 adds the 2-minute lease test
+.venv\Scripts\python -m pytest tests
+```
+
+CI (`.github/workflows/ci.yml`) typechecks, tests and builds every JS package, then starts the demo server
+on a runner (with 1 day of history) and runs the protocol tests against it.
+
 ## Next
 
+See `docs/component-map.md` for every piece by layer and the planning order. Done from it so far: the
+layer split, `SeriesFeed`, panes, compare, time zone and tick size in group C, the request API framework
+with identity and limits, the link bus, tests and CI.
+
 1. Persistence (P) is done: price lines, drawings, workspace settings. Owner is client-supplied on Community; use authenticated users + row ACLs on Enterprise.
-2. C3 for group C: the toolbar is done (`@acme/chart-react`); still to do: a table-to-LWC adapter (added and modified rows, time-zone
-   formatting), from `RawChart.tsx` and the benchmark client.
+2. The open decisions in the component map (app shell, layout library, generic table) gate layouts, workspaces and the generic widgets.
 3. More drawing tools on the same framework: rectangle, Fibonacci retracement, vertical line, text note. Drawing points off the data (weekend gaps) drift, since off-data times use a linear axis.
 4. Propose the fork's two changes upstream, along with the per-pane scale mode and null-as-gap
    issues.

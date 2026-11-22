@@ -156,7 +156,7 @@ export function marketStatus(spec: SessionSpec, nowSec = Date.now() / 1000): Mar
   return { state: 'closed', label: 'Market closed', name };
 }
 
-/** "2h 05m", "14m", "3d 4h" */
+/** "2h 05m", "14m", "45s", "3d 4h" */
 export function formatDuration(sec: number): string {
   const s = Math.max(0, Math.round(sec));
   const d = Math.floor(s / 86400);
@@ -164,6 +164,7 @@ export function formatDuration(sec: number): string {
   const m = Math.floor((s % 3600) / 60);
   if (d) return `${d}d ${h}h`;
   if (h) return `${h}h ${String(m).padStart(2, '0')}m`;
+  if (!m) return `${s}s`; // under a minute ("0m" read as already open)
   return `${m}m`;
 }
 

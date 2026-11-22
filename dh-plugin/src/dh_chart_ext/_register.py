@@ -1,5 +1,5 @@
 """Registers with the Deephaven server (entry point: deephaven.plugin): the middleware JS plugin, and the
-chart API object type (api.ChartApi)."""
+request API object type (rpc.Api, type acme.Api; api.ChartApi is one)."""
 
 from deephaven.plugin import Callback, Registration
 from deephaven.plugin.utilities import DheSafeCallbackWrapper, create_js_plugin
@@ -14,6 +14,6 @@ class ChartExtRegistration(Registration):
         callback = DheSafeCallbackWrapper(callback)
         callback.register(create_js_plugin(PACKAGE_NAMESPACE, JS_NAME))
 
-        from .api import ChartApiType  # imports deephaven: only inside a worker
+        from .rpc import ApiType  # imports deephaven: only inside a worker
 
-        callback.register(ChartApiType)
+        callback.register(ApiType)

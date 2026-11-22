@@ -13,7 +13,9 @@ Published fields, one per layer and front end (README.md):
   chart_annotations                    P: saved price lines, drawings, workspace settings; app.d/annotations.parquet
   chart_alerts, alerts_fired           alerts (app.d/alerts.parquet), evaluated by alert_engine; fired ones
   sessions                             trading hours per symbol (JSON spec), for JS clients
-  chart_api                            the chart API (dh_chart_ext.api): charts on demand as shared nodes, for JS clients
+  chart_api                            the chart API (dh_chart_ext.api, type acme.Api): charts on demand as shared nodes
+  chart_nodes                          the node cache, live: one row per shared node
+  instruments                          tick size and name per symbol
   history_ticks                        DEMO_HISTORY_DAYS (default 5) of synthetic ticks before the live feed,
                                        one per DEMO_HISTORY_STEP_S (5) per symbol, busier in regular hours
 
@@ -72,6 +74,7 @@ globals().update(source.standard_tables())
 # Charts on demand: any symbol, spread, resolution and studies, built when first asked for and shared
 # (source.nodes); workspaces use it directly, JS clients through this object
 chart_api = ChartApi(source)
+chart_nodes = source.nodes.cache.metrics_table()  # the shared nodes, live (Key, Refs, Hits, BuiltS, IdleS, Deps)
 
 # L1: one composed chart
 chart_ES = price_chart(

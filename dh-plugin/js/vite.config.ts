@@ -13,6 +13,7 @@ export default defineConfig({
     // @acme/chart-ext from source (its npm distribution is the built dist/)
     alias: [
       { find: '@acme/chart-ext', replacement: fileURLToPath(new URL('../../ext/src/index.ts', import.meta.url)) },
+      { find: '@acme/dh-bindings', replacement: fileURLToPath(new URL('../../bindings/src/index.ts', import.meta.url)) },
       { find: '@acme/chart-react', replacement: fileURLToPath(new URL('../../react/src/index.ts', import.meta.url)) },
     ],
   },

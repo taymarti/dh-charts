@@ -42,14 +42,12 @@ import {
   sessionSpecFor,
   setPageSessions,
   showAlertToasts,
-  subscribeRows,
-  tableAlertStore,
-  tableAnnotationStore,
   type AlertStore,
   type Navigation,
   type SessionSpec,
   type TvlRenderer,
 } from '@acme/chart-ext';
+import { subscribeRows, tableAlertStore, tableAnnotationStore } from '@acme/dh-bindings';
 import {
   AlertsPanel,
   ChartLegend,

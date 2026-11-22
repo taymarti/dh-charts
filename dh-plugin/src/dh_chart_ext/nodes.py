@@ -37,7 +37,7 @@ MIN_SECONDS, MAX_SECONDS = 1, 86400
 _SHORT = re.compile(r"^(\d+)\s*([smhd])$", re.I)
 _UNIT = {"s": 1, "m": 60, "h": 3600, "d": 86400}
 
-StudySpec = Union[str, dict]
+StudySpec = Union[str, dict, Study]
 
 
 def resolution_secs(res: Union[str, int]) -> int:
@@ -61,7 +61,9 @@ def resolution_name(secs: int) -> str:
 
 
 def study_of(spec: StudySpec) -> Study:
-    """A Study from 'EMA_20', 'BB_20_2', 'VWAP' or {'type': 'EMA', 'params': {'length': 20}}."""
+    """A Study from 'EMA_20', 'BB_20_2', 'VWAP' or {'type': 'EMA', 'params': {'length': 20}} (a Study as is)."""
+    if isinstance(spec, Study):
+        return spec
     if isinstance(spec, dict):
         type_, params = str(spec.get("type")), dict(spec.get("params") or {})
     else:
@@ -137,15 +139,8 @@ class ChartNodes:
         Without studies it is the bars node itself. Release the key when done."""
         sym = self.instrument(sym, symbols)
         secs = resolution_secs(res)
-        objs = {}
-        for spec in studies:
-            s = study_of(spec)
-            if s.key == "Volume" or s.columns() == ["Volume"]:
-                continue  # bars carry Volume
-            objs[s.key] = s
-        if len(objs) > MAX_STUDIES:
-            raise ValueError(f"at most {MAX_STUDIES} studies per chart")
-        keys = tuple(sorted(objs))
+        objs = self.canonical_studies(studies)
+        keys = tuple(objs)
         columns = [c for k in keys for c in objs[k].columns()]
         if not keys:
             key, t = self.bars(sym, secs, symbols=symbols)
@@ -158,6 +153,19 @@ class ChartNodes:
             return with_studies(parent, [objs[k] for k in keys], by=None)
 
         return key, self.cache.acquire(key, build), columns
+
+    @staticmethod
+    def canonical_studies(studies: Iterable[StudySpec]) -> dict[str, Study]:
+        """{key: Study} sorted by key, duplicates and Volume (bars carry it) left out."""
+        objs = {}
+        for spec in studies:
+            s = study_of(spec)
+            if s.key == "Volume" or s.columns() == ["Volume"]:
+                continue
+            objs[s.key] = s
+        if len(objs) > MAX_STUDIES:
+            raise ValueError(f"at most {MAX_STUDIES} studies per chart")
+        return dict(sorted(objs.items()))
 
     def release(self, key: tuple) -> None:
         self.cache.release(key)

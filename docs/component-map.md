@@ -41,10 +41,10 @@ Rules that keep the pieces reusable:
 | Piece | What | Status | Lives in now | Variants and future states |
 |---|---|---|---|---|
 | Chart core | `createChart` with house theme, time scale, price scale modes (normal, log, %, indexed) | ◐ | `web/src/RawChart.tsx` (group C); Deephaven's plugin draws A/B's | a `Chart` React component independent of Deephaven; settings dialog; touch and mobile |
-| Panes | studies in their own panes (RSI, volume) | ◐ A/B only (the plugin's panes) | Deephaven's plugin | LWC 5 panes in our own chart, so group C gets RSI and volume panes |
+| Panes | studies in their own panes (RSI with levels, volume) | ✅ | `ext/src/price-chart.ts` (`bindFeed`, LWC 5 panes); Deephaven's plugin for A/B | resizable panes; moving a study between panes |
 | Series types | candles, bars, line, area, histogram | ◐ A/B all four chart types; C candles only | `charts.py` (A/B), `RawChart.tsx` (C) | Heikin-Ashi, baseline, renko / range / point-and-figure (server-built bars), volume-colored candles |
-| Price formatting | decimals and tick size per instrument | ○ (LWC defaults) | | tick size from instrument metadata (layer 4); fractional bond prices (32nds) |
-| Time display | time zone of the axis and crosshair | ◐ inconsistent: A/B show local time, C shows UTC (C19) | | one display-zone setting for every chart (exchange, local, UTC), applied by a formatter |
+| Price formatting | decimals and tick size per instrument | ✅ group C | `ext/src/format.ts` (`priceFormatFor`), tick from the chart API (`instruments.py`) | fractional bond prices (32nds); A/B through the plugin |
+| Time display | time zone of the axis and crosshair | ✅ group C (`&tz=`; local by default, like A/B) | `ext/src/format.ts` (`timeZoneOptions`) | a user setting saved with the workspace; the exchange's zone per instrument; A/B through the plugin |
 | Legend | OHLC, change, study rows with values at the crosshair; show/hide, settings, remove | ✅ | `ext/src/legend.ts`, `react/src/ChartLegend.tsx` | per-pane legends; compact mode; a data window (all values at the crosshair) |
 | Drawings | horizontal line, trend line, context menu, undo, move, alert bell | ✅ | `ext/src/drawings.ts` | rectangle, Fibonacci, vertical line, ray, channel, text note, measure; templates; lock / hide all; snap to OHLC |
 | Price lines | user price lines (TradingView's official plugin), persistent lines | ✅ | `ext/src/extensions.ts`, `ext/src/persistent-price-lines.ts` | position lines (entry, stop, target) from the trading layer |
@@ -53,12 +53,12 @@ Rules that keep the pieces reusable:
 | Sessions | shading of closed and extended hours, market status | ✅ | `ext/src/sessions.ts`, `ext/src/lwc-plugins/time-range-shading.ts` | holidays and early closes; RTH-only view; session breaks on the axis |
 | Countdown | bar-close countdown on the price axis | ✅ | `ext/src/countdown.ts` | |
 | Alert lines | dashed lines for active price alerts; create from the chart (Alt+A, menu) | ✅ | `ext/src/alerts.ts` (`bindAlertLines`) | markers when fired; drag to edit |
-| Compare overlay | other symbols on a % scale | ◐ A/B only | Python (`charts.price_chart(compare=)`) | "add series from a feed" in layer 1, so group C gets it |
+| Compare overlay | other symbols on a % scale | ✅ | `ext/src/price-chart.ts` (`bindCompare`); Python (`charts.price_chart(compare=)`) for A/B | compare in its own pane; spreads of compared symbols |
 | Markers | arrows and labels at bars | ○ | | fills and trades from a blotter; strategy signals; news and events |
 | Overlays | | ○ | | volume profile, VWAP bands, order-book depth heatmap, server-sent annotations |
 | Shortcuts and context menu | Alt+H, Alt+T, Alt+R, Alt+A, Alt+G, Ctrl+Z | ✅ | `ext/src/drawings.ts`, `ext/src/nav.ts` | a central shortcut registry (layer 3) so widgets don't collide |
 | Screenshot and export | | ○ | | PNG via LWC `takeScreenshot`; CSV of the visible bars |
-| Interfaces | `AnnotationStore`, `AlertStore`, session calendar, chart key | ✅ | `ext/src/annotations.ts`, `ext/src/alerts.ts`, `ext/src/sessions.ts` | a `SeriesFeed` interface (snapshot, updates, history paging) so the chart takes any data source |
+| Interfaces | `AnnotationStore`, `AlertStore`, session calendar, chart key, `SeriesFeed` (snapshot and updates; `memoryFeed` for tests and demos) | ✅ | `ext/src/annotations.ts`, `alerts.ts`, `sessions.ts`, `feed.ts` | history paging in `SeriesFeed`; feeds for non-Deephaven sources |
 | Performance budget | 16 live charts at a 100 ms cadence | ✅ measured | `perf/` (C1–C8, C13) | keep a benchmark run per release; LWC's O(n) cost for a new time point with raw ticks (C2) rules out long tick histories |
 
 ## 2. Deephaven bindings (JS)
@@ -66,12 +66,12 @@ Rules that keep the pieces reusable:
 | Piece | What | Status | Lives in now | Variants and future states |
 |---|---|---|---|---|
 | Connection | connect to the server, session | ✅ twice | `web/` via `@deephaven/app-utils`; deephaven-compare `desk-app/web/src/deephaven.ts` (the JS API served by the server, no `@deephaven` React packages) | one connection module; reconnect after a session or network loss; several servers (sharding) |
-| Table → series adapter | Barrage snapshot and deltas into `setData` / `update` | ◐ | inline in `RawChart.tsx` | a reusable `SeriesFeed` over a table: removed and shifted rows, null gaps, time zones, column mapping, batching at high cadence |
-| Table hooks | a published table; its live rows in a viewport | ✅ | `ext/src/table-rows.ts` (`subscribeRows`, full subscription); `desk-app/web/src/hooks.ts` (`useTable`, `useLiveRows`, viewport) | one set of hooks, viewport by default |
-| Request client | JSON request/response over a plugin stream; ids, errors, table references, lease pings | ✅ | `web/src/chartApi.ts` | a generic `ApiClient` for any handler; typed methods generated from the server's handler registry; re-request held charts after a reconnect |
-| Store implementations | annotations and alerts over input tables | ✅ | `ext/src/annotations.ts`, `ext/src/alerts.ts` (`tableAnnotationStore`, `tableAlertStore`) | move out of layer 1; a workspace store; offline cache |
+| Table → series adapter | a `SeriesFeed` over a table: snapshot, added and modified rows, removals and older history as a new snapshot, null gaps | ✅ | `bindings/src/table-feed.ts` (`tableFeed`) | batching at high cadence; viewport subscriptions for long histories |
+| Table hooks | a published table; its live rows in a viewport | ✅ | `bindings/src/table-rows.ts` (`subscribeRows`, full subscription); `desk-app/web/src/hooks.ts` (`useTable`, `useLiveRows`, viewport) | one set of hooks, viewport by default |
+| Request client | generic `ApiClient` for any handler: ids, errors with codes, table references, lease pings, `hello`, `describe`; `requestChart` for charts | ✅ | `bindings/src/api-client.ts`, `chart-request.ts`; `web/src/chartApi.ts` (the React hook) | typed methods generated from `describe`; re-request held charts after a reconnect |
+| Store implementations | annotations and alerts over input tables | ✅ | `bindings/src/annotation-store.ts`, `alert-store.ts` | a workspace store; offline cache |
 | Deephaven chart hook | finds Deephaven's TradingView charts and applies our extensions | ✅ | `ext/src/hook.ts`, `dh-plugin/js` | needed only while A/B use Deephaven's plugin and our fork |
-| Identity on the client | who the user is | ○ | | a signed token sent in the first request |
+| Identity on the client | who the user is | ◐ `hello` with an unverified `user:<name>` | `web/src/chartApi.ts` | a signed token from the login service |
 | Errors and states | loading, empty, error, stale data | ◐ ad hoc | | one convention for every widget |
 | Other backends | | ○ | | an in-memory or mock feed for tests and demos; an adapter shaped like TradingView's Datafeed API, if the chart is ever used without Deephaven |
 
@@ -79,7 +79,7 @@ Rules that keep the pieces reusable:
 
 | Piece | What | Status | Lives in now | Variants and future states |
 |---|---|---|---|---|
-| Link bus | shared values (symbol, interval, time range, account) per link group | ○ (lifted state in the deephaven.ui workspace) | | link groups with colors, like TradingView's symbol links; links into Python as controls; compatible with Deephaven's dashboard linker |
+| Link bus | shared values (symbol, interval, time range, account) per link group | ✅ (group C: watchlist and chart share the symbol) | `react/src/link.ts` (`createLinkBus`, `LinkProvider`, `useLink`, `LINK_GROUPS`) | a group picker on each widget; saved with workspaces (`snapshot` / `restore`); links into Python as controls; compatible with Deephaven's dashboard linker |
 | Layout manager | panels: split, tabs, resize, multi-chart grids | ◐ 1–4 chart layouts | `workspace.py`, the toolbar's layout menu | a docking library (dockview, FlexLayout, golden-layout); pop-out windows; several monitors |
 | Workspaces | saved layouts with each panel's state | ◐ one saved state per layout and user | `store.save_settings` | named layouts, templates, sharing, a versioned schema with migrations |
 | Deep links | state in the URL | ◐ query parameters (`?sym=`, `?workspace&api`) | `web/src/App.tsx` | a URL scheme for workspaces, panels and link-group values |
@@ -108,8 +108,8 @@ Rules that keep the pieces reusable:
 | Table catalog | logical table names resolved by where the app runs | ✅ | `dhapp.catalog` | a published catalog of the app's own nodes (for the DAG explorer and generated clients) |
 | Engine hosting | where the engine runs | ✅ several | `app.d` scripts on a pip server; `desk-app` (one process, Python + Java + React in one wheel); `hybrid` (Java nodes: per-row functions 4.7–6.5× faster, stateful listeners 13–20× cheaper than Python) | embedded in your CEP process; a separate server fed by the CEP; several workers |
 | Market data ingestion | feeds into ticking tables | ◐ synthetic feeds; `dhapp` sources with history | `perf/app.d/feeds.py`, `dhapp.App.source` | real feed connectors (Kafka, vendor SDKs), Java `StreamPublisher` sources (X10) |
-| Request API | object-type plugin, JSON request router, one stream per client, leases | ✅ for charts | `dh_chart_ext/api.py` | a generic handler registry (`@app.view`, `@app.control`) with parameter schemas, versioning, generated client types |
-| Node cache | shared nodes by canonical key, reference counts, grace period, parent cascade | ✅ | `dh_chart_ext/cache.py` | limits (total, per user); a metrics table; pinned nodes; shared prefixes of study chains; eviction by cost |
+| Request API | handler registry (`@api.method`), validation from type hints, `describe`, `hello`, holds with leases, limits per stream and user, error codes | ✅ | `dh_chart_ext/rpc.py` (charts: `api.py`) | `@app.control` for input-table controls; versioning; generated client types; inside `dhapp` (decision 6) |
+| Node cache | shared nodes by canonical key, reference counts, grace period, parent cascade, a node limit, a live metrics table (`chart_nodes`) | ✅ | `dh_chart_ext/cache.py` | pinned nodes; shared prefixes of study chains; eviction by cost |
 | Chart nodes | bars at any interval, studies, spreads | ✅ | `dh_chart_ext/nodes.py` | ticks as nodes; quotes and watchlist columns as nodes; history windows shared in steps |
 | Data model | ticks, bars, studies, spreads, quotes; trading and risk recipes | ✅ | `dh_chart_ext/data.py`; `dhapp.recipes`, `dhapp.schemas` | instrument metadata (tick size, contract rolls, continuous futures); corporate actions; several feeds |
 | History | lookback paging; demo history; replay | ◐ | `data.Lookback`, `app.d/demo.py`; `dhfw` replay mode, `TableReplayer` (X6) | Parquet or a historical store joined to live; base bars kept on disk |
@@ -118,9 +118,9 @@ Rules that keep the pieces reusable:
 | Alert engine | crossings evaluated in the engine, written back | ✅ | `dh_chart_ext/alerts.py` | finer than one cycle; more alert types; delivery channels |
 | Supervised actions | Python side effects off the graph, with health | ✅ | `dhapp.App.action` (X14) | the alert engine as a dhapp action |
 | Sessions | exchange calendars per instrument | ✅ | `dh_chart_ext/sessions.py` | holidays and early closes from a calendar source |
-| Identity | who the caller is | ○ (Community anonymous: `AuthContext$Anonymous`, no user id; C21) | `api.py` `whoami` | verified tokens in the protocol; a custom Java authentication handler; Enterprise users |
+| Identity | who the caller is | ◐ `hello` verifies HMAC-signed tokens when `ACME_API_SECRET` is set; Community's auth context has no user id (C21) | `dh_chart_ext/rpc.py`, `tokens.py` | a login service that issues tokens; a custom Java authentication handler; Enterprise users |
 | Authorization | what the caller may see and do | ◐ Enterprise only | `dhfw.acl` (row and column ACLs on Enterprise; a no-op on Community) | ACLs on API requests; exported tables run through the server's transform (the API declares it) |
-| Introspection and observability | what the app runs and what it costs | ◐ | deephaven-compare `introspect/`; the chart API's `stats` | a live catalog table; per-node cost from the update performance log; dashboards |
+| Introspection and observability | what the app runs and what it costs | ◐ | deephaven-compare `introspect/`; the chart API's `stats`; `chart_nodes` (the node cache, live) | a live catalog table; per-node cost from the update performance log; dashboards |
 | Deployment and configuration | packaging, settings, security | ◐ | `desk-app` (one wheel, Pixi build, X29–X31); run scripts | console off in production; update-cycle and Barrage cadence settings (C8); heap; rate limits per client |
 | Scaling | | ○ | `dhfw.remote` (tables from other workers, X12) | shard by symbol group; route requests; shared tickets between workers |
 
@@ -128,9 +128,9 @@ Rules that keep the pieces reusable:
 
 | Piece | Status | Notes |
 |---|---|---|
-| Protocol spec | ◐ (the docstring in `api.py`) | message shapes, errors, versioning, lease; one document for client and server |
-| Tests | ◐ | dh-charts has no automated tests (only scripts run by hand); deephaven-compare has `tests/test_dhfw_community.py`, `examples/07_app_framework.py`; to add: protocol tests with pydeephaven, Playwright for widgets, a mock backend for layers 1–3 |
-| CI | ○ in dh-charts | deephaven-compare has `pixi run ci` for desk-app |
+| Protocol spec | ◐ (docstrings in `rpc.py` and `api.py`; `describe` at runtime) | one document for client and server; versioning rules |
+| Tests | ✅ | dh-charts: pytest protocol tests against a live server (`tests/`), vitest unit tests in `ext`, `bindings`, `react`; deephaven-compare: `tests/test_dhfw_community.py`, `examples/07_app_framework.py`; to add: Playwright for widgets |
+| CI | ✅ | dh-charts `.github/workflows/ci.yml` (JS packages, then a live server and the protocol tests); deephaven-compare `pixi run ci` for desk-app |
 | Versions | ✅ pinned | Lightweight Charts 5.2.0, Deephaven Community 42.6, `@deephaven/jsapi-types` ~41.11 (behind the server), the fork at 0.1.0+acme.1; track upgrades in one place |
 | Packaging | ✅ | npm tarballs in lwc-vendor; editable wheel for dh-chart-ext; desk-app as one wheel; package boundaries should follow the layers (below) |
 | Evidence | ✅ | `VERIFIED_FACTS.md` in deephaven-compare (C1–C23 charts and the chart API, X1–X32 framework) |
@@ -143,27 +143,28 @@ For the pieces not yet built or only partial. Size is rough: S about a day, M a 
 
 | Piece | Depends on | Size | Risk or unknowns |
 |---|---|---|---|
-| Split layer 1 from layer 2 (move table stores, `subscribeRows`, the hook) | nothing | S | none; breaking change for the packed tarballs |
-| `SeriesFeed` interface + table adapter | the split | M | shifted rows and time zones in Barrage deltas |
+| ~~Split layer 1 from layer 2~~ | done: `@acme/dh-bindings`; the hook stays in layer 1 (it has no Deephaven import) | | |
+| ~~`SeriesFeed` interface + table adapter~~ | done | | |
 | One connection module and table hooks | decision 1 | S | reconnect behaviour of the JS API after session loss is unmeasured |
-| Generic request client + handler registry | the chart API (done) | M | schema format; whether to generate client types |
-| Link bus | decision 1 | S | scope rules for groups across pop-out windows |
+| ~~Generic request client + handler registry~~ | done (`rpc.Api`, `ApiClient`); generated client types still open | | |
+| ~~Link bus~~ | done; groups across pop-out windows still open | | |
 | Layout manager and workspaces | decisions 1 and 2, link bus | L | persistence schema and migrations |
-| React chart panel on the request client | `SeriesFeed`, panes, link bus | M | panes and compare in our own chart |
-| Display time zone | `SeriesFeed` | S | the plugin's own formatting in A/B (the fork caches offsets, C13) |
-| Price formatting by tick size | instrument metadata | S | metadata source |
+| React chart panel as a reusable component | done as `RawChart`/`RawWorkspace` in `web/`; move into layer 3 with the shell decision | S | |
+| ~~Display time zone~~ | done for group C | | |
+| ~~Price formatting by tick size~~ | done for group C (demo tick sizes) | | |
 | Generic table widget | decision 3, table hooks, link bus | M (own) or S (IrisGrid) | IrisGrid needs `@deephaven` React packages; our own needs viewport scrolling |
 | Forms from control schemas | handler registry | M | which control types to support |
 | DAG explorer | generic table, a live catalog | M | introspection cost on a large graph; ancestry needs the performance log opened at start (introspect docstring) |
-| Identity (token) | handler registry | S–M | where tokens come from (single sign-on) |
-| Node cache limits and metrics | identity (for per-user limits) | S | choosing limits |
+| Identity: a token issuer | `tokens.sign_token` (done) | S–M | where users log in (single sign-on) |
+| ~~Node cache limits and metrics~~ | done | | |
 | Charts and API inside `dhapp` | decision 6 | M | two stores modules to merge |
 | Instrument metadata | ingestion | M | contract rolls and continuous futures |
 | Trading widgets | generic table, forms, broker integration | L | broker and order-routing model |
-| Tests and CI for dh-charts | nothing | M | needs a server in CI (Docker or the pip server) |
+| ~~Tests and CI for dh-charts~~ | done | | |
 
 Foundations, in an order that unblocks the most: the layer split, decision 1, the link bus and table hooks,
-the request client and handler registry, then `SeriesFeed` and the React chart panel.
+the request client and handler registry, then `SeriesFeed` and the React chart panel. All but decision 1
+are done (2026-11-22); the rest of layer 3 waits on decisions 1–3.
 
 ## Scenarios (future states) and what each needs
 
@@ -197,7 +198,7 @@ the request client and handler registry, then `SeriesFeed` and the React chart p
 | Proposed | Holds | From |
 |---|---|---|
 | `@acme/chart` (layer 1) | chart core, series types, plugins, interfaces | `ext/` minus the Deephaven files; the chart parts of `RawChart.tsx` |
-| `@acme/dh-bindings` (layer 2) | connection, table hooks, `SeriesFeed` over tables, request client, store implementations, chart hook | `ext/src/annotations.ts` and `ext/src/alerts.ts` (table stores), `ext/src/table-rows.ts`, `ext/src/hook.ts`, `web/src/chartApi.ts`, `desk-app/web/src/deephaven.ts` and `hooks.ts` |
+| `@acme/dh-bindings` (layer 2) | table stores, `subscribeRows`, `tableFeed`, `ApiClient`, `requestChart` (exists, `bindings/`); still to move in: a connection module and table hooks | `desk-app/web/src/deephaven.ts` and `hooks.ts` |
 | `@acme/app-shell` (layer 3) | link bus, layouts, workspaces, generic widgets, chart panel | `react/`, `RawWorkspace`, `desk-app/web/src/components` |
 | `dhapp` + `dhfw` (layer 4) | app structure, catalog, stores, runtime portability; add the request API and node cache | deephaven-compare; `dh_chart_ext/api.py`, `cache.py` |
 | `dh-charts` (a layer-4 module) | chart data model, nodes, studies, sessions, alerts | `dh_chart_ext/data.py`, `nodes.py`, `sessions.py`, `alerts.py`, `charts.py` |
@@ -214,7 +215,7 @@ the request client and handler registry, then `SeriesFeed` and the React chart p
 | A browser page that navigates away is never reported to the plugin | Deephaven object streams | its nodes would leak (no `on_close` after 11 minutes, C22) | the API's 90 s lease (verified, C22) |
 | No user identity on Community | Deephaven auth | per-user state is keyed by a client-supplied owner | verified tokens, or Enterprise |
 | Tick charts and each pane's history window are not shared nodes | `workspace.chart_pane` | one small filter chain per pane | ticks as nodes; lookback in shared steps |
-| Time axis differs: local time in A/B, UTC in C | Deephaven's plugin vs. our chart (C19) | the same bar shows different times | one display-zone setting |
+| A/B's time zone is the browser's | Deephaven's plugin | group C can show the exchange's zone (`&tz=`); A/B cannot | a zone option in the fork |
 | `@deephaven/jsapi-types` is ~41.11, the server 42.6 | `package.json` | types may lag the API | upgrade with the server |
 | Deephaven's plugin is 0.1.0 alpha and we run a fork | A/B | upstream changes need merging | S2 drops both |
 | LWC rebuilds the whole series when a new time point arrives (C2) | Lightweight Charts 5.2 | long raw-tick histories are slow | bars, not raw ticks, for long views |

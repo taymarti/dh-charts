@@ -146,8 +146,10 @@ class ChartSource:
 
     def standard_tables(self) -> dict[str, Table]:
         """L0's standard set (bars_<res> with every standard study) for clients that only filter,
-        `quotes` for their watchlists, and `sessions` (trading hours per symbol)."""
-        return {**self.standard(), "quotes": self.quotes, "sessions": sessions_table()}
+        `quotes` for their watchlists, `sessions` (trading hours per symbol) and `instruments` (tick sizes)."""
+        from .instruments import instruments_table
+
+        return {**self.standard(), "quotes": self.quotes, "sessions": sessions_table(), "instruments": instruments_table()}
 
 
 # ----------------------------------------------------------------------------- elements

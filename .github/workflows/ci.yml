@@ -1,0 +1,87 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  js:
+    name: JS packages (typecheck, unit tests, builds)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      # each package has its own lockfile; the in-repo hosts compile ext/bindings/react from source
+      - name: Install
+        run: |
+          for p in ext bindings react dh-plugin/js web; do (cd $p && npm ci --no-audit --no-fund); done
+      - name: Chart component (@acme/chart-ext)
+        working-directory: ext
+        run: npm run typecheck && npm test && npm run build
+      - name: Deephaven bindings (@acme/dh-bindings)
+        working-directory: bindings
+        run: npm run typecheck && npm test && npm run build
+      - name: App shell (@acme/chart-react)
+        working-directory: react
+        run: npm run typecheck && npm test && npm run build
+      - name: deephaven.ui plugin bundle
+        working-directory: dh-plugin/js
+        run: npm run build
+      - name: React host
+        working-directory: web
+        run: npx tsc --noEmit
+
+  python:
+    name: Server and chart API (pytest against a live Deephaven)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      DH_TEST_PORT: 10040
+      DH_TEST_REQUIRE: 1
+      DEMO_HISTORY_DAYS: 1
+      PERF_RATE: 10
+      PERF_HISTORY_S: 1800
+      PERF_FLATTEN: 1
+      PYTHONUNBUFFERED: 1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Build the server plugin's JS
+        run: |
+          for p in ext bindings react dh-plugin/js; do (cd $p && npm ci --no-audit --no-fund); done
+          (cd dh-plugin/js && npm run build)
+      # the TradingView plugin from PyPI (our fork's changes are JS-side; the Python API is the same)
+      - name: Install the server
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-server.txt deephaven-plugin-tradingview-lightweight==0.1.0 pydeephaven==42.6 pytest
+          pip install -e dh-plugin
+      - name: Unit tests (no server)
+        run: pytest tests/test_tokens.py -q
+      - name: Start the demo server
+        run: |
+          python run_server.py --port $DH_TEST_PORT --heap 2g --app-dir app.d > server.log 2>&1 &
+          for i in $(seq 1 100); do grep -q "Deephaven is up" server.log && break; sleep 3; done
+          tail -5 server.log
+      - name: Protocol tests (live server)
+        run: pytest tests -q
+      - name: Server log
+        if: always()
+        run: tail -100 server.log || true

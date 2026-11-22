@@ -14,6 +14,10 @@ by that node's scope; a build that acquires other nodes (2m bars on 1m bars, a s
 their keys to `deps`, and they are released when the node is evicted, so a parent outlives its children.
 
 Builds run outside the cache's lock. Requests for a key that is being built wait for the same build.
+
+Limits: at most `max_nodes` nodes (held or idle); a request that would build one more raises NodeLimit
+after evicting idle nodes first. `metrics_table()` is a live table of the nodes (Key, Refs, Hits,
+BuiltS, IdleS, Deps), refreshed by the sweeper, for dashboards.
 """
 from __future__ import annotations
 
@@ -27,6 +31,12 @@ from deephaven.execution_context import get_exec_ctx
 from deephaven.liveness_scope import LivenessScope
 
 log = logging.getLogger(__name__)
+
+
+class NodeLimit(RuntimeError):
+    """The cache is full of held nodes."""
+
+    api_code = "limit"  # how rpc.Api reports it
 
 
 class _Entry:
@@ -46,10 +56,13 @@ class _Entry:
 class NodeCache:
     """Shared tables keyed by a canonical request; reference-counted, evicted after a grace period."""
 
-    def __init__(self, grace_s: float = 60.0, sweep_s: float = 5.0):
+    def __init__(self, grace_s: float = 60.0, sweep_s: float = 5.0, max_nodes: int = 2000):
         self._lock = threading.Lock()
         self._entries: dict[Hashable, _Entry] = {}
         self.grace_s = grace_s
+        self.max_nodes = max_nodes
+        self._metrics = None
+        self._metric_keys: set[str] = set()
         self._ctx = get_exec_ctx()  # the app's context, for evictions on the sweeper thread
         self._stop = threading.Event()
         self._sweeper = threading.Thread(target=self._sweep_loop, args=(sweep_s,), name="node-cache-sweeper", daemon=True)
@@ -58,6 +71,12 @@ class NodeCache:
     def acquire(self, key: Hashable, build: Callable[[list], Any]) -> Any:
         """The node for `key`, built with `build(deps)` if it is not cached. Pair with one release(key)."""
         with self._lock:
+            full = key not in self._entries and len(self._entries) >= self.max_nodes
+        if full:
+            self.evict_idle(older_than=0)  # make room from nodes nobody holds
+        with self._lock:
+            if key not in self._entries and len(self._entries) >= self.max_nodes:
+                raise NodeLimit(f"the node cache is full ({self.max_nodes} nodes held)")
             e = self._entries.get(key)
             owner = e is None
             if owner:
@@ -133,6 +152,38 @@ class NodeCache:
                 for k, e in self._entries.items()
             ]
 
+    def metrics_table(self):
+        """A live table of the cached nodes (one row per node), refreshed every sweep."""
+        if self._metrics is None:
+            from deephaven import dtypes as dht
+            from deephaven.table_factory import input_table
+
+            self._metrics = input_table({"Key": dht.string, "Refs": dht.int32, "Hits": dht.int32, "BuiltS": dht.double,
+                                         "IdleS": dht.double, "Deps": dht.string}, key_cols="Key")
+            self._publish_metrics()
+        return self._metrics
+
+    def _publish_metrics(self) -> None:
+        if self._metrics is None:
+            return
+        from deephaven import new_table
+        from deephaven.column import double_col, int_col, string_col
+
+        rows = self.stats()
+        name = lambda k: "|".join(str(x) for x in k) if isinstance(k, list) else str(k)  # noqa: E731
+        keys = [name(r["key"]) for r in rows]
+        gone = self._metric_keys - set(keys)
+        if rows:
+            self._metrics.add(new_table([
+                string_col("Key", keys), int_col("Refs", [r["refs"] for r in rows]), int_col("Hits", [r["hits"] for r in rows]),
+                double_col("BuiltS", [r["built_s"] if r["built_s"] is not None else float("nan") for r in rows]),
+                double_col("IdleS", [r["idle_s"] if r["idle_s"] is not None else float("nan") for r in rows]),
+                string_col("Deps", [", ".join(name(d) for d in r["deps"]) for r in rows]),
+            ]))
+        if gone:
+            self._metrics.delete(new_table([string_col("Key", sorted(gone))]))
+        self._metric_keys = set(keys)
+
     def close(self) -> None:
         self._stop.set()
 
@@ -143,5 +194,6 @@ class NodeCache:
                     # evicting a node can idle its parents; sweep until nothing more goes
                     while self.evict_idle():
                         pass
+                    self._publish_metrics()
             except Exception:  # noqa: BLE001
                 log.exception("[node-cache] sweep failed")
