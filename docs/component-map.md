@@ -133,7 +133,7 @@ Rules that keep the pieces reusable:
 | CI | ✅ | dh-charts `.github/workflows/ci.yml` (JS packages, then a live server and the protocol tests); deephaven-compare `pixi run ci` for desk-app |
 | Versions | ✅ pinned | Lightweight Charts 5.2.0, Deephaven Community 42.6, `@deephaven/jsapi-types` ~41.11 (behind the server), the fork at 0.1.0+acme.1; track upgrades in one place |
 | Packaging | ✅ | npm tarballs in lwc-vendor; editable wheel for dh-chart-ext; desk-app as one wheel; package boundaries should follow the layers (below) |
-| Evidence | ✅ | `VERIFIED_FACTS.md` in deephaven-compare (C1–C23 charts and the chart API, X1–X32 framework) |
+| Evidence | ✅ | `VERIFIED_FACTS.md` in deephaven-compare (C1–C24 charts and the chart API, X1–X32 framework) |
 | The fork of Deephaven's plugin | ✅ | needed only for A/B; propose its changes upstream, or drop it with A/B |
 | Licensing | ✅ Apache-2.0 | no TradingView attribution added (decided) |
 
@@ -212,7 +212,7 @@ are done (2026-11-22); the rest of layer 3 waits on decisions 1–3.
 | No holidays or early closes | `sessions.py` | shading and status are wrong on holidays | a calendar source |
 | The synthetic feed ticks on weekends | `perf/app.d/feeds.py` | demo only | |
 | About 30 s before the first workspace opens after start | demo (5 days of history) | slow restarts | base bars on disk |
-| A browser page that navigates away is never reported to the plugin | Deephaven object streams | its nodes would leak (no `on_close` after 11 minutes, C22) | the API's 90 s lease (verified, C22) |
+| A closed stream is not always reported to the plugin (a browser page that navigates away: never; a pydeephaven close on Linux: not within 10 s) | Deephaven object streams | its nodes would leak (no `on_close` after 11 minutes, C22) | the API's 90 s lease (verified, C22) |
 | No user identity on Community | Deephaven auth | per-user state is keyed by a client-supplied owner | verified tokens, or Enterprise |
 | Tick charts and each pane's history window are not shared nodes | `workspace.chart_pane` | one small filter chain per pane | ticks as nodes; lookback in shared steps |
 | A/B's time zone is the browser's | Deephaven's plugin | group C can show the exchange's zone (`&tz=`); A/B cannot | a zone option in the fork |
