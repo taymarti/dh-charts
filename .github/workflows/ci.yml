@@ -46,6 +46,8 @@ jobs:
     env:
       DH_TEST_PORT: 10040
       DH_TEST_REQUIRE: 1
+      DH_SLOW: 1               # the lease tests: quick with a short lease
+      CHART_API_LEASE_S: 15
       DEMO_HISTORY_DAYS: 1
       PERF_RATE: 10
       PERF_HISTORY_S: 1800

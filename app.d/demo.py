@@ -73,7 +73,7 @@ globals().update(source.standard_tables())
 
 # Charts on demand: any symbol, spread, resolution and studies, built when first asked for and shared
 # (source.nodes); workspaces use it directly, JS clients through this object
-chart_api = ChartApi(source)
+chart_api = ChartApi(source, lease_s=float(os.environ.get("CHART_API_LEASE_S", "90")))  # CI uses a short lease
 chart_nodes = source.nodes.cache.metrics_table()  # the shared nodes, live (Key, Refs, Hits, BuiltS, IdleS, Deps)
 
 # L1: one composed chart

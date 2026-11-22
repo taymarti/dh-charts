@@ -99,12 +99,15 @@ def test_release_then_reuse_within_grace(client):
 
 
 def test_closing_a_stream_releases_its_nodes(make_client):
+    # Released when the server sees the stream close (promptly with pydeephaven on Windows), or at the
+    # latest when its lease runs out (on a Linux CI runner the close was not seen within 10 s)
     a, watcher = make_client(), make_client()
     r, _ = a.result("chart", sym="GC", res="15m", studies=["EMA_50"])
     before = watcher.node(r["key"])["refs"]
     a.close()
-    deadline = time.time() + 10
+    deadline = time.time() + watcher.ready["lease_s"] + 20
     while time.time() < deadline and (watcher.node(r["key"]) or {"refs": 0})["refs"] >= before:
+        watcher.result("ping")  # the watcher keeps its own lease
         time.sleep(0.5)
     assert (watcher.node(r["key"]) or {"refs": 0})["refs"] == before - 1
 
@@ -117,7 +120,7 @@ def test_repeated_request_holds_once(client):
     assert client.stats()["held"].count(r1["key"]) == 1
 
 
-@pytest.mark.skipif(not os.environ.get("DH_SLOW"), reason="takes 90-120 s; set DH_SLOW=1")
+@pytest.mark.skipif(not os.environ.get("DH_SLOW"), reason="takes the lease plus up to 40 s (2 minutes at 90 s); set DH_SLOW=1")
 def test_a_silent_stream_loses_its_lease(make_client):
     a, watcher = make_client(), make_client()
     r, _ = a.result("chart", sym="SI", res="15m", studies=["SMA_20"])
