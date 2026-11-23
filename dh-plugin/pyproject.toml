@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "dh-chart-ext"
-version = "0.1.0"
+version = "0.2.0"
 description = "Charts and an app framework on Deephaven: @acme/chart-ext for Deephaven's TradingView charts, chart data and nodes on demand, a request API (rpc), saved workspaces, the update-graph explorer, and backtests"
 requires-python = ">=3.10"
 license = "Apache-2.0"

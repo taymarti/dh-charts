@@ -23,7 +23,7 @@ jobs:
       # (shell first: the hosts resolve dockview-react from shell/node_modules)
       - name: Install
         run: |
-          for p in ext bindings react shell desk dh-plugin/js web; do (cd $p && npm ci --no-audit --no-fund); done
+          for p in ext bindings react shell mock widgets desk dh-plugin/js web; do (cd $p && npm ci --no-audit --no-fund); done
       - name: Chart component (@acme/chart-ext)
         working-directory: ext
         run: npm run typecheck && npm test && npm run build
@@ -36,6 +36,12 @@ jobs:
       - name: App shell (@acme/app-shell)
         working-directory: shell
         run: npm run typecheck && npm test && npm run build
+      - name: In-page mock server (@acme/dh-mock)
+        working-directory: mock
+        run: npm run typecheck && npm run build
+      - name: Deephaven widgets (@acme/dh-widgets)
+        working-directory: widgets
+        run: npm run typecheck && npm run build
       - name: Desk app
         working-directory: desk
         run: npm run build
