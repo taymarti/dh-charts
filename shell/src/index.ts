@@ -22,7 +22,7 @@
 import './shell.css';
 
 export { Shell, type AddPanel, type ShellProps } from './Shell';
-export { definePanel, titleOf, type PanelKind, type PanelPlacement, type PanelProps } from './registry';
+export { definePanel, titleOf, withPrefix, type PanelKind, type PanelPlacement, type PanelProps } from './registry';
 export {
   LAYOUT_VERSION,
   apiWorkspaceStore,
@@ -78,6 +78,7 @@ export {
   type ChartInstrument,
   type ChartWorkspaceOptions,
   type ChartWorkspaceParams,
+  type SeriesChoice,
   type StudyInstance,
 } from './chart/ChartWorkspace';
 export { forgetRequests, requestOnce, useFilteredRows, usePolled } from './hooks';

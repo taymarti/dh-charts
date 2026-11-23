@@ -30,6 +30,8 @@ export interface ToolbarValue {
   addCompare?: string;
   /** the open side panel's key ("" or undefined: none), with options.panels */
   panel?: string;
+  /** which of the symbol's series is charted (its price, its yield, ...), with options.series */
+  series?: string;
 }
 
 /** What follows the active chart across a multi-chart layout. */
@@ -70,6 +72,8 @@ export interface ToolbarOptions {
   expressions?: boolean;
   /** offer "Compare": overlay another symbol */
   compare?: boolean;
+  /** the symbol's series to choose from (a security's price, yield, spread to the curve, ...): a menu before Indicators */
+  series?: ToolbarItem[];
 }
 
 export interface ChartToolbarProps {
@@ -87,7 +91,7 @@ const SYNC_ITEMS: Array<[keyof SyncValue, string]> = [
   ['symbol', 'Symbol'], ['interval', 'Interval'], ['crosshair', 'Crosshair'], ['time', 'Time'],
 ];
 
-type Open = 'symbol' | 'interval' | 'type' | 'range' | 'layout' | 'compare' | null;
+type Open = 'symbol' | 'interval' | 'type' | 'range' | 'layout' | 'compare' | 'series' | null;
 
 const PANEL_ICON: Record<string, ReactNode> = { watchlist: icons.watchlist, alerts: icons.bell };
 
@@ -159,6 +163,18 @@ export function ChartToolbar({ value, options, onChange, className }: ChartToolb
         {open === 'type' && (
           <Menu items={options.chartTypes} selected={value.chartType} icons={TYPE_ICON} onPick={chartType => pick({ chartType })} />
         )}
+      </span>,
+    );
+  }
+  if (options.series && options.series.length > 1) {
+    parts.push(
+      sep('s3'),
+      <span key="series" style={{ position: 'relative' }}>
+        <button className={`acme-tb-btn${open === 'series' ? ' on' : ''}`} onClick={() => toggle('series')} title="Which series of the symbol to chart">
+          {labelOf(options.series, value.series)}
+          {icons.caret}
+        </button>
+        {open === 'series' && <Menu items={options.series} selected={value.series} onPick={series => pick({ series })} />}
       </span>,
     );
   }

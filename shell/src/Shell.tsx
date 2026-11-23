@@ -18,7 +18,7 @@ import {
   type IDockviewPanelProps,
 } from 'dockview-react';
 import { LINK_GROUPS, LinkProvider, createLinkBus, type LinkBus } from '@acme/chart-react';
-import { titleOf, type PanelKind, type PanelProps, type StoredParams } from './registry';
+import { titleOf, withPrefix, type PanelKind, type PanelProps, type StoredParams } from './registry';
 import { LAYOUT_VERSION, migrateLayout, type WorkspaceLayout, type WorkspaceStore, type WorkspaceSummary } from './workspace-store';
 import { useConnectionState } from './deephaven';
 import { EngineScope } from './engines';
@@ -59,6 +59,7 @@ export function Shell({ kinds, store = null, defaultLayout, title, extra, bus: g
   const [current, setCurrent] = useState<string | null>(null);
   const [saved, setSaved] = useState<WorkspaceSummary[]>([]);
   const [note, setNote] = useState<string | null>(null);
+  const [counts, setCounts] = useState<Record<string, number>>({});
 
   const snapshot = useCallback((): WorkspaceLayout | null => {
     const api = apiRef.current;
@@ -106,7 +107,7 @@ export function Shell({ kinds, store = null, defaultLayout, title, extra, bus: g
       : options.position
         ? { position: options.position }
         : {};
-    api.addPanel({ id, component: kind, title: options.title ?? titleOf(k, p), params: p, ...(where as object) });
+    api.addPanel({ id, component: kind, title: options.title ? withPrefix(k, options.title) : titleOf(k, p), params: p, ...(where as object) });
     return id;
   }, []);
 
@@ -145,6 +146,19 @@ export function Shell({ kinds, store = null, defaultLayout, title, extra, bus: g
       }
       if (!restored) defaultLayout?.(e.api, add);
       e.api.onDidLayoutChange(autosave);
+      // the "+ Panel" menu's counts: how many of each kind are on the layout
+      const recount = () => {
+        const c: Record<string, number> = {};
+        for (const panel of e.api.panels) {
+          const kind = (panel.api as unknown as { component?: string }).component ?? (panel as unknown as { view?: { contentComponent?: string } }).view?.contentComponent;
+          if (kind) c[kind] = (c[kind] ?? 0) + 1;
+        }
+        setCounts(c);
+      };
+      recount();
+      e.api.onDidAddPanel(recount);
+      e.api.onDidRemovePanel(recount);
+      e.api.onDidLayoutFromJSON(recount);
     },
     [add, apply, autosave, autosaveKey, defaultLayout],
   );
@@ -233,7 +247,10 @@ export function Shell({ kinds, store = null, defaultLayout, title, extra, bus: g
             <option value="">+ Panel</option>
             {kinds.map(k => (
               <option key={k.kind} value={k.kind} title={k.description}>
+                {/* a panel already on the layout is marked, with how many */}
+                {counts[k.kind] ? '● ' : ' '}
                 {k.label ?? titleOf(k, k.defaultParams ?? {})}
+                {counts[k.kind] ? `  (${counts[k.kind]} open)` : ''}
               </option>
             ))}
           </select>
@@ -309,6 +326,12 @@ function PanelHost({ kind, dock, add, autosave }: { kind: PanelKind; dock: IDock
     const d = dock.api.onDidParametersChange(() => setLocal({ ...(dock.api.getParameters() as StoredParams) }));
     return () => d.dispose();
   }, [dock.api]);
+  // a layout saved before the kind had its prefix (or a title set elsewhere): add it
+  useEffect(() => {
+    const t = dock.api.title ?? '';
+    if (kind.titlePrefix && t && !t.startsWith(kind.titlePrefix)) dock.api.setTitle(withPrefix(kind, t));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dock.api]);
   const setParams = useCallback(
     (patch: Record<string, unknown>) => {
       const next = { ...paramsRef.current, ...patch };
@@ -324,7 +347,7 @@ function PanelHost({ kind, dock, add, autosave }: { kind: PanelKind; dock: IDock
     id: dock.api.id,
     params: own,
     setParams,
-    setTitle: t => dock.api.setTitle(t),
+    setTitle: t => dock.api.setTitle(withPrefix(kind, t)),
     linkGroup: __link ?? null,
     openPanel: (k, p, title, where) =>
       add(k, p, {

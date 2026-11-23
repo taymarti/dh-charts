@@ -43,6 +43,11 @@ export interface PanelKind<P extends object = any> {
   defaultParams?: P;
   /** the name in the "add panel" menu (default: the title) */
   label?: string;
+  /**
+   * Put before the tab's title (e.g. 'T:' for a table): says what kind of panel shows a picked result, for kinds
+   * whose title is otherwise just the thing picked (a table's name)
+   */
+  titlePrefix?: string;
   /** a line for the "add panel" menu */
   description?: string;
   /** whether the header shows a link-group picker (default true) */
@@ -63,5 +68,11 @@ export type StoredParams = Record<string, unknown> & {
 };
 
 export function titleOf(kind: PanelKind, params: object): string {
-  return typeof kind.title === 'function' ? kind.title(params) : kind.title;
+  return withPrefix(kind, typeof kind.title === 'function' ? kind.title(params) : kind.title);
+}
+
+/** `title` with the kind's prefix (once). */
+export function withPrefix(kind: PanelKind, title: string): string {
+  const pre = kind.titlePrefix;
+  return pre && !title.startsWith(pre) ? `${pre} ${title}` : title;
 }

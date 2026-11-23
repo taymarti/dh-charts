@@ -37,6 +37,7 @@ export function seriesPanel() {
   return definePanel<SeriesPanelParams>({
     kind: 'series',
     label: 'Series chart',
+    titlePrefix: 'S:',
     title: p => p.table ?? 'Series',
     description: 'Line charts of any table with a time column',
     defaultParams: { table: null },

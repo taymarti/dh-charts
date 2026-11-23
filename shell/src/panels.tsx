@@ -97,6 +97,7 @@ export function tablePanel() {
   return definePanel<TablePanelParams>({
     kind: 'table',
     label: 'Table',
+    titlePrefix: 'T:',
     title: p => p.table ?? 'Table',
     description: 'Any published table',
     defaultParams: { table: null },

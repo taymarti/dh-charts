@@ -83,6 +83,16 @@ export interface ChartWorkspaceParams {
   compare: string[];
   /** the side panel shown: 'watchlist', 'alerts', one of the app's, or '' */
   panel: string;
+  /** which of the symbol's series is charted (with options.useSeries), e.g. 'yield'; none: the first */
+  series?: string;
+}
+
+/** One series a symbol offers: a security's price, its yield, its spread to the curve... */
+export interface SeriesChoice {
+  key: string;
+  label: string;
+  /** the symbol charted for it */
+  sym: string;
 }
 
 /** What the workspace needs to know about a symbol: its notation, name, and whether it has volume. */
@@ -110,6 +120,13 @@ export interface ChartWorkspaceOptions {
   /** a note after the market status in the legend (e.g. "simulated data ticks around the clock") */
   statusNote?: string;
   defaultParams?: Partial<ChartWorkspaceParams>;
+  /**
+   * The series a (base) symbol offers, a hook: the toolbar shows a menu of them, and the chart draws the chosen one.
+   * The link bus keeps the base symbol, so linked panels see the security, not one of its series.
+   */
+  useSeries?: (sym: string) => SeriesChoice[];
+  /** a series symbol's base and series key (e.g. 'X.IDIO' -> { base: 'X', series: 'idio' }), or null for a base symbol */
+  baseOf?: (sym: string) => { base: string; series: string } | null;
 }
 
 const COMPARE_COLORS = ['#2962ff', '#e91e63', '#00bcd4', '#8bc34a'];
@@ -405,7 +422,21 @@ function WatchlistSide({ table, title, sym, setSym }: { table: string; title?: s
 
 function ChartWorkspace({ opts, params, setParams, setTitle, linkGroup }: PanelProps<ChartWorkspaceParams> & { opts: ChartWorkspaceOptions }) {
   const symbols = opts.useSymbols();
-  const [sym, setSym] = useLink<string>('symbol', { group: linkGroup, initial: params.symbol });
+  const [linked, setSym] = useLink<string>('symbol', { group: linkGroup, initial: params.symbol });
+  // a series symbol arriving on the link (a bond's idio) charts that series of its base symbol
+  const resolved = linked ? opts.baseOf?.(linked) ?? null : null;
+  const base = resolved?.base ?? linked;
+  const choices = opts.useSeries?.(base) ?? [];
+  const seriesKey = (resolved && choices.some(c => c.key === resolved.series) ? resolved.series : undefined) ??
+    choices.find(c => c.key === params.series)?.key ?? choices[0]?.key;
+  const sym = choices.find(c => c.key === seriesKey)?.sym ?? base;
+  useEffect(() => {
+    if (resolved && resolved.base !== linked) {
+      setParams({ series: resolved.series });
+      setSym(resolved.base);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [linked]);
   const inst = opts.useInstrument(sym);
   const [lwc, setLwc] = useState<{ chart: IChartApi; series: ISeriesApi<SeriesType>[] } | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
@@ -415,7 +446,7 @@ function ChartWorkspace({ opts, params, setParams, setTitle, linkGroup }: PanelP
 
   // the symbol is linked: keep the saved params and the tab title in step
   useEffect(() => {
-    if (sym && sym !== p.symbol) setParams({ symbol: sym });
+    if (base && base !== p.symbol) setParams({ symbol: base });
     setTitle(`${sym} ${p.res}`);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sym, p.res]);
@@ -446,14 +477,16 @@ function ChartWorkspace({ opts, params, setParams, setTitle, linkGroup }: PanelP
         { key: 'alerts', label: 'Alerts' },
         ...(opts.panels ?? []).map(x => ({ key: x.key, label: x.label })),
       ],
+      series: choices.map(c => ({ key: c.key, label: c.label, description: c.sym })),
     }),
-    [symbols, allowed, opts.watchlist, opts.panels],
+    [symbols, allowed, opts.watchlist, opts.panels, choices.map(c => c.key + c.sym).join()], // eslint-disable-line react-hooks/exhaustive-deps
   );
 
   const compare = p.compare.map((c, i) => ({ sym: c, color: COMPARE_COLORS[i % COMPARE_COLORS.length] }));
 
   const onToolbar = (patch: ToolbarValue) => {
     if (patch.symbol) setSym(patch.symbol);
+    if (patch.series) set({ series: patch.series });
     if (patch.addStudy && STUDY_TYPES[patch.addStudy]) set({ studies: [...p.studies, newStudy(patch.addStudy, pickColor(p.studies.map(s => s.color)))] });
     if (patch.addCompare && patch.addCompare !== sym && !p.compare.includes(patch.addCompare)) set({ compare: [...p.compare, patch.addCompare] });
     const out: Partial<ChartWorkspaceParams> = {};
@@ -483,7 +516,7 @@ function ChartWorkspace({ opts, params, setParams, setTitle, linkGroup }: PanelP
     <div className="acme-cw">
       <div className="acme-cw-main">
         <ChartToolbar
-          value={{ symbol: sym, resolution: p.res, range: p.range, chartType: p.chartType, studies: shownStudies.map(s => s.type), scale: scaleShown, panel: p.panel }}
+          value={{ symbol: base, series: seriesKey, resolution: p.res, range: p.range, chartType: p.chartType, studies: shownStudies.map(s => s.type), scale: scaleShown, panel: p.panel }}
           options={options}
           onChange={onToolbar}
         />
