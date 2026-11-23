@@ -7,8 +7,13 @@
  * The current layout is kept in this browser (autosaveKey) and comes back on reload; named workspaces go to
  * `store` (the server, per user, or this browser). Each panel's header has a link-group chip: panels in the
  * same group share values on the link bus (the symbol), so a table row click can move every red chart.
+ *
+ * New panels open as floating windows (from "+ Panel" and from links inside panels); the user closes them or drags
+ * them into the layout. Ctrl+click in "+ Panel" adds a tab to the active group instead. Closing or dragging out a
+ * docked panel leaves a blank space (an empty group) where it was, and each group's header can split off a blank
+ * space beside or below it; a floating window dropped on a blank space snaps into it.
  */
-import { useCallback, useEffect, useMemo, useRef, useState, type FunctionComponent, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type FunctionComponent, type ReactNode } from 'react';
 import {
   DockviewReact,
   themeDark,
@@ -16,6 +21,7 @@ import {
   type DockviewReadyEvent,
   type IDockviewHeaderActionsProps,
   type IDockviewPanelProps,
+  type IWatermarkPanelProps,
 } from 'dockview-react';
 import { LINK_GROUPS, LinkProvider, createLinkBus, type LinkBus } from '@acme/chart-react';
 import { titleOf, withPrefix, type PanelKind, type PanelProps, type StoredParams } from './registry';
@@ -47,7 +53,11 @@ export type AddPanel = (
   options?: { title?: string; position?: unknown; floating?: number },
 ) => string | null;
 
+/** a new floating window's share of the shell's size */
+export const FLOAT_SIZE = 0.6;
+
 let nextId = 1;
+let cascade = 0;
 const newId = (kind: string) => `${kind}-${Date.now().toString(36)}-${(nextId++).toString(36)}`;
 const GROUP_KEYS = LINK_GROUPS.map(g => g.key);
 
@@ -95,13 +105,15 @@ export function Shell({ kinds, store = null, defaultLayout, title, extra, bus: g
     // the header shows a link chip for panels with __link; a kind that can't link has none
     if (!('__link' in p) && k.linkable !== false) p.__link = k.defaultLink === undefined ? 'red' : k.defaultLink;
     const id = newId(kind);
+    // floating windows cascade, so a second one doesn't hide the first
+    const step = (cascade++ % 6) * 28 - 70;
     const where = options.floating
       ? {
           floating: {
             width: Math.round(api.width * options.floating),
             height: Math.round(api.height * options.floating),
-            x: Math.round((api.width * (1 - options.floating)) / 2),
-            y: Math.round((api.height * (1 - options.floating)) / 2),
+            x: Math.max(0, Math.round((api.width * (1 - options.floating)) / 2) + step),
+            y: Math.max(0, Math.round((api.height * (1 - options.floating)) / 2) + step),
           },
         }
       : options.position
@@ -146,6 +158,11 @@ export function Shell({ kinds, store = null, defaultLayout, title, extra, bus: g
       }
       if (!restored) defaultLayout?.(e.api, add);
       e.api.onDidLayoutChange(autosave);
+      // blank spaces belong to the layout: a floating or popped-out window that empties (its last tab closed or
+      // dragged into the layout) goes away
+      e.api.onDidLayoutChange(() => {
+        for (const g of e.api.groups) if (g.panels.length === 0 && g.api.location.type !== 'grid') e.api.removeGroup(g);
+      });
       // the "+ Panel" menu's counts: how many of each kind are on the layout
       const recount = () => {
         const c: Record<string, number> = {};
@@ -222,6 +239,18 @@ export function Shell({ kinds, store = null, defaultLayout, title, extra, bus: g
     refresh();
   };
 
+  /** "+ Panel": a floating window, or (Ctrl+click) a tab in the active group */
+  const addFromMenu = useCallback(
+    (kind: string, asTab: boolean) => {
+      const g = apiRef.current?.activeGroup;
+      if (asTab && g) add(kind, {}, { position: { referenceGroup: g.id, direction: 'within' } });
+      else if (asTab || !apiRef.current?.groups.length) add(kind);
+      else add(kind, {}, { floating: FLOAT_SIZE });
+    },
+    [add],
+  );
+  const menu = useMemo(() => ({ kinds, counts, add }), [kinds, counts, add]);
+
   // dockview needs stable component functions: one wrapper per kind, made once per kinds list
   const components = useMemo(() => {
     const out: Record<string, FunctionComponent<IDockviewPanelProps>> = {};
@@ -232,28 +261,11 @@ export function Shell({ kinds, store = null, defaultLayout, title, extra, bus: g
 
   return (
     <LinkProvider bus={bus}>
+      <MenuContext.Provider value={menu}>
       <div className="acme-shell">
         <header className="acme-shell-bar">
           <span className="acme-shell-title">{title}</span>
-          <select
-            className="acme-shell-add"
-            value=""
-            onChange={e => {
-              if (e.target.value) add(e.target.value);
-              e.target.value = '';
-            }}
-            title="Add a panel"
-          >
-            <option value="">+ Panel</option>
-            {kinds.map(k => (
-              <option key={k.kind} value={k.kind} title={k.description}>
-                {/* a panel already on the layout is marked, with how many */}
-                {counts[k.kind] ? '● ' : ' '}
-                {k.label ?? titleOf(k, k.defaultParams ?? {})}
-                {counts[k.kind] ? `  (${counts[k.kind]} open)` : ''}
-              </option>
-            ))}
-          </select>
+          <AddMenu kinds={kinds} counts={counts} onAdd={addFromMenu} label="+ Panel" hint="Click: a new window · Ctrl+click: a tab in the active panel" />
           {store && (
             <>
               <select className="acme-shell-ws" value={current ?? ''} onChange={e => e.target.value && void open(e.target.value)} title={`Workspaces (${store.where})`}>
@@ -310,10 +322,13 @@ export function Shell({ kinds, store = null, defaultLayout, title, extra, bus: g
             components={components}
             onReady={onReady}
             rightHeaderActionsComponent={HeaderActions}
+            watermarkComponent={BlankSpace}
+            closeEmptyGroups={false}
             popoutUrl={popoutUrl}
           />
         </div>
       </div>
+      </MenuContext.Provider>
     </LinkProvider>
   );
 }
@@ -349,12 +364,11 @@ function PanelHost({ kind, dock, add, autosave }: { kind: PanelKind; dock: IDock
     setParams,
     setTitle: t => dock.api.setTitle(withPrefix(kind, t)),
     linkGroup: __link ?? null,
+    // a floating window unless the caller docks it (docked, or a tab: 'within')
     openPanel: (k, p, title, where) =>
-      add(k, p, {
-        title,
-        floating: where?.floating,
-        position: { referencePanel: where?.referencePanel ?? dock.api.id, direction: where?.direction ?? 'right' },
-      }),
+      where?.docked || where?.direction === 'within'
+        ? add(k, p, { title, position: { referencePanel: where?.referencePanel ?? dock.api.id, direction: where?.direction ?? 'right' } })
+        : add(k, p, { title, floating: where?.floating ?? FLOAT_SIZE }),
   };
   const C = kind.component;
   return (
@@ -378,7 +392,36 @@ function HeaderActions({ activePanel, containerApi, group }: IDockviewHeaderActi
     const d = activePanel.api.onDidParametersChange(() => rerender(x => x + 1));
     return () => d.dispose();
   }, [activePanel]);
-  if (!activePanel) return null;
+  const where = group.api.location.type;
+  const split = where === 'grid' && (
+    <>
+      <button title="Blank space to the right (drag a window into it)" onClick={() => containerApi.addGroup({ referenceGroup: group.id, direction: 'right' })}>
+        ◫
+      </button>
+      <button title="Blank space below (drag a window into it)" onClick={() => containerApi.addGroup({ referenceGroup: group.id, direction: 'below' })}>
+        ⊟
+      </button>
+    </>
+  );
+  const close = (
+    <button
+      className="acme-shell-close"
+      title={group.panels.length > 1 ? `Close these ${group.panels.length} tabs and their space` : group.panels.length ? 'Close, and its space' : 'Remove this blank space'}
+      onClick={() => {
+        if (group.api.isMaximized()) group.api.exitMaximized();
+        containerApi.removeGroup(group);
+      }}
+    >
+      ✕
+    </button>
+  );
+  if (!activePanel)
+    return (
+      <div className="acme-shell-actions">
+        {split}
+        {close}
+      </div>
+    );
   // the panel's params, not api.getParameters(): dockview 8.8's api returns {} until the first updateParameters,
   // so a panel that never changes its params (a curve, a watchlist) showed no link chip
   const params = ((activePanel as { params?: StoredParams }).params ?? activePanel.api.getParameters()) as StoredParams;
@@ -390,7 +433,6 @@ function HeaderActions({ activePanel, containerApi, group }: IDockviewHeaderActi
     const next = i + 1 >= GROUP_KEYS.length ? null : GROUP_KEYS[i + 1];
     activePanel.api.updateParameters({ ...params, __link: next });
   };
-  const where = group.api.location.type;
   return (
     <div className="acme-shell-actions">
       {linkable && (
@@ -401,6 +443,7 @@ function HeaderActions({ activePanel, containerApi, group }: IDockviewHeaderActi
           title={link ? `Linked: ${link} (click for the next group)` : 'Not linked (click to link)'}
         />
       )}
+      {split}
       {where === 'grid' && (
         <>
           <button title="Float" onClick={() => containerApi.addFloatingGroup(group)}>
@@ -420,17 +463,78 @@ function HeaderActions({ activePanel, containerApi, group }: IDockviewHeaderActi
           ⇲
         </button>
       )}
-      {/* every group, wherever it is, can be closed in one click (all its tabs) */}
-      <button
-        className="acme-shell-close"
-        title={group.panels.length > 1 ? `Close these ${group.panels.length} tabs` : 'Close'}
-        onClick={() => {
-          if (group.api.isMaximized()) group.api.exitMaximized();
-          group.api.close();
-        }}
-      >
-        ✕
+      {/* every group, wherever it is, can be closed in one click (all its tabs, and the space); a tab's own ✕
+          closes just it and leaves a blank space */}
+      {close}
+    </div>
+  );
+}
+
+interface MenuState {
+  kinds: PanelKind[];
+  counts: Record<string, number>;
+  add: AddPanel;
+}
+const MenuContext = createContext<MenuState | null>(null);
+
+/** A menu of panel kinds (a panel already on the layout is marked, with how many). */
+export function AddMenu({ kinds, counts, onAdd, label, hint }: { kinds: PanelKind[]; counts: Record<string, number>; onAdd: (kind: string, ctrl: boolean) => void; label: string; hint?: string }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return undefined;
+    const off = (e: PointerEvent) => !ref.current?.contains(e.target as Node) && setOpen(false);
+    const esc = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false);
+    document.addEventListener('pointerdown', off);
+    document.addEventListener('keydown', esc);
+    return () => {
+      document.removeEventListener('pointerdown', off);
+      document.removeEventListener('keydown', esc);
+    };
+  }, [open]);
+  return (
+    <div className="acme-addmenu" ref={ref}>
+      <button className="acme-shell-add" onClick={() => setOpen(o => !o)} title={hint}>
+        {label} ▾
       </button>
+      {open && (
+        <div className="acme-addmenu-list" role="menu">
+          {hint && <div className="acme-addmenu-hint">{hint}</div>}
+          {kinds.map(k => (
+            <button
+              key={k.kind}
+              role="menuitem"
+              title={k.description}
+              onClick={e => {
+                setOpen(false);
+                onAdd(k.kind, e.ctrlKey || e.metaKey);
+              }}
+            >
+              <span className="acme-addmenu-dot">{counts[k.kind] ? '●' : ''}</span>
+              {k.label ?? titleOf(k, k.defaultParams ?? {})}
+              {counts[k.kind] ? <small>{counts[k.kind]} open</small> : null}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** An empty group: a blank space to drop a window into, or to add a panel to. */
+function BlankSpace({ group }: IWatermarkPanelProps) {
+  const m = useContext(MenuContext);
+  return (
+    <div className="acme-blank">
+      <div>{group ? 'Blank space: drag a window or tab here' : 'No panels'}</div>
+      {m && (
+        <AddMenu
+          kinds={m.kinds}
+          counts={m.counts}
+          label="Add a panel here"
+          onAdd={kind => m.add(kind, {}, group ? { position: { referenceGroup: group.id, direction: 'within' } } : {})}
+        />
+      )}
     </div>
   );
 }

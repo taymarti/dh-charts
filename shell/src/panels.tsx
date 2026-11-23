@@ -7,7 +7,7 @@
  *   tablePanel      any published table in a DataGrid; a row click sets the linked symbol (its Sym column)
  *   requestPanel    a form for any method of a request API (from its `describe`), the reply and its tables
  */
-import { useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
 import type { dh as Dh } from '@deephaven/jsapi-types';
 import { safeClose, type ApiClient, type MethodSpec, type ParamSpec, type Row } from '@acme/dh-bindings';
 import { Watchlist, useLink, type ToolbarValue, type WatchlistRow } from '@acme/chart-react';
@@ -106,58 +106,56 @@ export function tablePanel() {
     title: p => p.table ?? 'Table',
     description: 'Any published table',
     defaultParams: { table: null },
+    // the table selector is always there: pick another table and it shows here, in place
     component: function TablePanel(props: PanelProps<TablePanelParams>) {
       const { params, setParams, setTitle } = props;
-      if (params.bySymbol) return <SymbolTable {...props} />;
-      if (!params.table)
-        return (
-          <TablePicker
-            onPick={name => {
-              setParams({ table: name });
-              setTitle(name);
-            }}
-            onBySymbol={() => {
-              setParams({ bySymbol: true });
+      const select = (
+        <TableSelect
+          value={params.bySymbol ? BY_SYMBOL : params.table}
+          onPick={name => {
+            if (name === BY_SYMBOL) {
+              setParams({ bySymbol: true, table: null });
               setTitle('by symbol');
-            }}
-          />
-        );
-      return <TableView {...props} table={params.table} />;
+            } else {
+              setParams({ table: name, bySymbol: false, dataset: undefined, sorts: undefined, filters: undefined, widths: undefined });
+              setTitle(name);
+            }
+          }}
+        />
+      );
+      if (params.bySymbol) return <SymbolTable {...props} lead={select} />;
+      return (
+        <div className="acme-symtable">
+          <div className="acme-symtable-bar">{select}</div>
+          <div className="acme-symtable-grid">
+            {params.table ? <TableView key={params.table} {...props} table={params.table} /> : <div className="acme-empty">Pick a table above.</div>}
+          </div>
+        </div>
+      );
     },
   });
 }
 
-function TablePicker({ onPick, onBySymbol }: { onPick: (name: string) => void; onBySymbol: () => void }) {
-  const items = usePublished().filter(i => i.type === 'Table');
-  const others = usePublished().filter(i => !TABLE_TYPES.has(i.type));
+const BY_SYMBOL = '\u0000bySymbol';
+
+/** Every published table (and, with a SymbolModel, "by symbol"), in a dropdown. */
+function TableSelect({ value, onPick }: { value: string | null; onPick: (name: string) => void }) {
+  const names = usePublished()
+    .filter(i => TABLE_TYPES.has(i.type))
+    .map(i => i.name)
+    .sort((a, b) => a.localeCompare(b));
+  if (value && value !== BY_SYMBOL && !names.includes(value)) names.unshift(value);
   const hasModel = useSymbolModel().useSymbols() != null;
   return (
-    <div className="acme-picker">
-      {hasModel && (
-        <>
-          <h3>By symbol</h3>
-          <button onClick={onBySymbol}>The linked symbol's datasets (positions, trades, ...)</button>
-        </>
-      )}
-      <h3>Published tables</h3>
-      {items.map(i => (
-        <button key={i.name} onClick={() => onPick(i.name)}>
-          {i.name}
-        </button>
+    <select className="acme-table-select" value={value ?? ''} onChange={e => e.target.value && onPick(e.target.value)} title="Which table">
+      <option value="">Table…</option>
+      {hasModel && <option value={BY_SYMBOL}>By symbol: the linked symbol's tables</option>}
+      {names.map(n => (
+        <option key={n} value={n}>
+          {n}
+        </option>
       ))}
-      {items.length === 0 && <div className="acme-empty">none yet</div>}
-      {others.length > 0 && (
-        <>
-          <h3 style={{ marginTop: 12 }}>Other objects</h3>
-          {others.map(i => (
-            <div key={i.name} style={{ padding: '2px 6px', color: '#787b86' }}>
-              {i.name}
-              <small>{i.type}</small>
-            </div>
-          ))}
-        </>
-      )}
-    </div>
+    </select>
   );
 }
 
@@ -179,7 +177,7 @@ function TableView({ params, setParams, linkGroup, table }: PanelProps<TablePane
 }
 
 /** Symbol mode: the linked symbol's tabulatable datasets, one at a time, each its table filtered to the symbol. */
-function SymbolTable({ params, setParams, setTitle, linkGroup }: PanelProps<TablePanelParams>) {
+function SymbolTable({ params, setParams, setTitle, linkGroup, lead }: PanelProps<TablePanelParams> & { lead?: ReactNode }) {
   const [sym, setSymbol] = useLink<string | undefined>('symbol', { group: linkGroup });
   const model = useSymbolModel();
   const id = sym ? model.resolve?.(sym)?.sym ?? sym : '';
@@ -190,14 +188,14 @@ function SymbolTable({ params, setParams, setTitle, linkGroup }: PanelProps<Tabl
     setTitle(id ? `${id} · ${ds?.label ?? 'no tables'}` : 'by symbol');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, ds?.key]);
-  if (!id) return <div className="acme-empty">Link this panel to a symbol: its tables show here.</div>;
   const where = ds?.table?.where ?? {};
   const linkColumn = ds?.table?.linkColumn;
   return (
     <div className="acme-symtable">
       <div className="acme-symtable-bar">
+        {lead}
         <b>{id}</b>
-        {datasets.length ? (
+        {!id ? null : datasets.length ? (
           <select value={ds?.key ?? ''} onChange={e => setParams({ dataset: e.target.value })} title="Which of the symbol's datasets">
             {datasets.map(d => (
               <option key={d.key} value={d.key} title={d.description}>
@@ -210,6 +208,7 @@ function SymbolTable({ params, setParams, setTitle, linkGroup }: PanelProps<Tabl
         )}
       </div>
       <div className="acme-symtable-grid">
+        {!id && <div className="acme-empty">Link this panel to a symbol: its tables show here.</div>}
         {error && <div className="acme-error">{ds?.table?.table}: {error}</div>}
         {t && ds && (
           <DataGrid
