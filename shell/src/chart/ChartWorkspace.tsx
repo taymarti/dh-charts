@@ -64,6 +64,7 @@ import {
 } from '@acme/chart-react';
 import { useApiClient, useDeephaven, useRows } from '../deephaven';
 import { definePanel, type PanelKind, type PanelProps } from '../registry';
+import { useSymbolModel } from '../symbols';
 
 export interface StudyInstance {
   id: string;
@@ -83,8 +84,8 @@ export interface ChartWorkspaceParams {
   compare: string[];
   /** the side panel shown: 'watchlist', 'alerts', one of the app's, or '' */
   panel: string;
-  /** which of the symbol's series is charted (with options.useSeries), e.g. 'yield'; none: the first */
-  series?: string;
+  /** which of the symbol's chartable datasets is charted (e.g. 'yield'); none: the first */
+  dataset?: string;
 }
 
 /** One series a symbol offers: a security's price, its yield, its spread to the curve... */
@@ -424,15 +425,23 @@ function ChartWorkspace({ opts, params, setParams, setTitle, linkGroup }: PanelP
   const symbols = opts.useSymbols();
   const [linked, setSym] = useLink<string>('symbol', { group: linkGroup, initial: params.symbol });
   // a series symbol arriving on the link (a bond's idio) charts that series of its base symbol
-  const resolved = linked ? opts.baseOf?.(linked) ?? null : null;
+  // the app's symbol model (symbols.tsx), unless the options give their own series
+  const model = useSymbolModel();
+  const fromModel = model.useDatasets(linked ? model.resolve?.(linked)?.sym ?? linked : '');
+  const resolveName = opts.baseOf ?? ((n: string) => {
+    const r = model.resolve?.(n);
+    return r ? { base: r.sym, series: r.dataset } : null;
+  });
+  const resolved = linked ? resolveName(linked) : null;
   const base = resolved?.base ?? linked;
-  const choices = opts.useSeries?.(base) ?? [];
+  const ownSeries = opts.useSeries?.(base);
+  const choices: SeriesChoice[] = ownSeries ?? fromModel.filter(d => d.chart).map(d => ({ key: d.key, label: d.label, sym: d.chart! }));
   const seriesKey = (resolved && choices.some(c => c.key === resolved.series) ? resolved.series : undefined) ??
-    choices.find(c => c.key === params.series)?.key ?? choices[0]?.key;
+    choices.find(c => c.key === params.dataset)?.key ?? choices[0]?.key;
   const sym = choices.find(c => c.key === seriesKey)?.sym ?? base;
   useEffect(() => {
     if (resolved && resolved.base !== linked) {
-      setParams({ series: resolved.series });
+      setParams({ dataset: resolved.series });
       setSym(resolved.base);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -486,7 +495,7 @@ function ChartWorkspace({ opts, params, setParams, setTitle, linkGroup }: PanelP
 
   const onToolbar = (patch: ToolbarValue) => {
     if (patch.symbol) setSym(patch.symbol);
-    if (patch.series) set({ series: patch.series });
+    if (patch.series) set({ dataset: patch.series });
     if (patch.addStudy && STUDY_TYPES[patch.addStudy]) set({ studies: [...p.studies, newStudy(patch.addStudy, pickColor(p.studies.map(s => s.color)))] });
     if (patch.addCompare && patch.addCompare !== sym && !p.compare.includes(patch.addCompare)) set({ compare: [...p.compare, patch.addCompare] });
     const out: Partial<ChartWorkspaceParams> = {};

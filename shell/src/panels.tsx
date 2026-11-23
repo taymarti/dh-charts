@@ -12,6 +12,7 @@ import type { dh as Dh } from '@deephaven/jsapi-types';
 import { safeClose, type ApiClient, type MethodSpec, type ParamSpec, type Row } from '@acme/dh-bindings';
 import { Watchlist, useLink, type ToolbarValue, type WatchlistRow } from '@acme/chart-react';
 import { definePanel, type PanelProps } from './registry';
+import { useSymbolModel } from './symbols';
 import { message, useApiClient, useOwnTable, usePublished, useRows } from './deephaven';
 import { DataGrid, type GridState } from './grid/DataGrid';
 import { RawWorkspace } from './chart/RawChart';
@@ -87,6 +88,10 @@ export function watchlistPanel(o: { table?: string } = {}) {
 
 export interface TablePanelParams extends Partial<GridState> {
   table: string | null;
+  /** symbol mode: follow the linked symbol and show one of its tabulatable datasets (the app's SymbolModel) */
+  bySymbol?: boolean;
+  /** in symbol mode, the dataset shown (its key); none: the symbol's first */
+  dataset?: string;
   /** the column whose value a row click puts on the link bus as the symbol (default: Sym or Symbol, if any) */
   linkColumn?: string | null;
 }
@@ -103,12 +108,17 @@ export function tablePanel() {
     defaultParams: { table: null },
     component: function TablePanel(props: PanelProps<TablePanelParams>) {
       const { params, setParams, setTitle } = props;
+      if (params.bySymbol) return <SymbolTable {...props} />;
       if (!params.table)
         return (
           <TablePicker
             onPick={name => {
               setParams({ table: name });
               setTitle(name);
+            }}
+            onBySymbol={() => {
+              setParams({ bySymbol: true });
+              setTitle('by symbol');
             }}
           />
         );
@@ -117,11 +127,18 @@ export function tablePanel() {
   });
 }
 
-function TablePicker({ onPick }: { onPick: (name: string) => void }) {
+function TablePicker({ onPick, onBySymbol }: { onPick: (name: string) => void; onBySymbol: () => void }) {
   const items = usePublished().filter(i => i.type === 'Table');
   const others = usePublished().filter(i => !TABLE_TYPES.has(i.type));
+  const hasModel = useSymbolModel().useSymbols() != null;
   return (
     <div className="acme-picker">
+      {hasModel && (
+        <>
+          <h3>By symbol</h3>
+          <button onClick={onBySymbol}>The linked symbol's datasets (positions, trades, ...)</button>
+        </>
+      )}
       <h3>Published tables</h3>
       {items.map(i => (
         <button key={i.name} onClick={() => onPick(i.name)}>
@@ -158,6 +175,52 @@ function TableView({ params, setParams, linkGroup, table }: PanelProps<TablePane
       onRowClick={linkColumn && linkGroup ? row => row[linkColumn] != null && setSymbol(String(row[linkColumn])) : undefined}
       highlight={linkColumn && linkGroup && symbol ? row => String(row[linkColumn]) === symbol : undefined}
     />
+  );
+}
+
+/** Symbol mode: the linked symbol's tabulatable datasets, one at a time, each its table filtered to the symbol. */
+function SymbolTable({ params, setParams, setTitle, linkGroup }: PanelProps<TablePanelParams>) {
+  const [sym, setSymbol] = useLink<string | undefined>('symbol', { group: linkGroup });
+  const model = useSymbolModel();
+  const id = sym ? model.resolve?.(sym)?.sym ?? sym : '';
+  const datasets = model.useDatasets(id).filter(d => d.table);
+  const ds = datasets.find(d => d.key === params.dataset) ?? datasets[0] ?? null;
+  const { value: t, error } = useOwnTable(ds?.table?.table ?? null);
+  useEffect(() => {
+    setTitle(id ? `${id} · ${ds?.label ?? 'no tables'}` : 'by symbol');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, ds?.key]);
+  if (!id) return <div className="acme-empty">Link this panel to a symbol: its tables show here.</div>;
+  const where = ds?.table?.where ?? {};
+  const linkColumn = ds?.table?.linkColumn;
+  return (
+    <div className="acme-symtable">
+      <div className="acme-symtable-bar">
+        <b>{id}</b>
+        {datasets.length ? (
+          <select value={ds?.key ?? ''} onChange={e => setParams({ dataset: e.target.value })} title="Which of the symbol's datasets">
+            {datasets.map(d => (
+              <option key={d.key} value={d.key} title={d.description}>
+                {d.label}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <span className="acme-empty">no tabulatable datasets</span>
+        )}
+      </div>
+      <div className="acme-symtable-grid">
+        {error && <div className="acme-error">{ds?.table?.table}: {error}</div>}
+        {t && ds && (
+          <DataGrid
+            key={`${id}|${ds.key}`}
+            table={t}
+            initial={{ filters: Object.fromEntries(Object.entries(where).map(([c, v]) => [c, `=${v}`])) }}
+            onRowClick={linkColumn && linkGroup ? row => row[linkColumn] != null && setSymbol(String(row[linkColumn])) : undefined}
+          />
+        )}
+      </div>
+    </div>
   );
 }
 

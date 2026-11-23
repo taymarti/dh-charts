@@ -83,3 +83,4 @@ export {
 } from './chart/ChartWorkspace';
 export { forgetRequests, requestOnce, useFilteredRows, usePolled } from './hooks';
 export { ApiStatus, ThemeSwitch, restoreTheme, type ThemeChoice } from './status';
+export { SymbolModelProvider, useDatasets, useSymbolModel, type DatasetDef, type SymbolInfo, type SymbolModel } from './symbols';
