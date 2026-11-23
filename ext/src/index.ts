@@ -10,6 +10,7 @@
 export { attachTvlExtensions, stats, type TvlChartContext, type TvlExtension, type TvlRenderer } from './hook';
 export { sessionShading, userPriceLines } from './extensions';
 export { bindSync, crosshairSync } from './sync';
+export { chartThemeOptions, followTheme, notifyThemeChange } from './theme';
 export { TimeRangeShading, alternatingBlocks, type RangesFor, type ShadedRange } from './lwc-plugins/time-range-shading';
 export { defaultExtensions, type ExtensionName } from './defaults';
 export {
@@ -58,7 +59,23 @@ export {
   type AlertStore,
 } from './alerts';
 export { applyChanges, memoryFeed, type FeedListener, type FeedRow, type MemoryFeed, type SeriesFeed } from './feed';
-export { formatTime, priceFormatFor, tickDecimals, timeFormatters, timeZoneOptions, type DisplayZone } from './format';
+export {
+  fmt32,
+  formatChange,
+  formatPrice,
+  formatTime,
+  parse32,
+  priceFormatFor,
+  tickDecimals,
+  timeFormatters,
+  timeZoneOptions,
+  upDown,
+  type DisplayZone,
+  type PriceNotation,
+} from './format';
+// indicators on bar arrays (the contract of dh_chart_ext.data's studies) and spread expressions over symbols
+export { STUDY_TYPES, makeStudy, studiesFor, studyLabel, type Bars, type Study, type StudyContext, type StudyType } from './studies';
+export { isExpression, parseExpr, type Expr } from './expr';
 export {
   bindCompare,
   bindFeed,

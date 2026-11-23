@@ -10,7 +10,8 @@
  * `panes` puts each series (wide) or each first split value, e.g. each symbol (long), in a pane of its own.
  */
 import { useEffect, useRef, useState } from 'react';
-import { ColorType, CrosshairMode, LineSeries, createChart, type ISeriesApi, type UTCTimestamp } from 'lightweight-charts';
+import { CrosshairMode, LineSeries, createChart, type ISeriesApi, type UTCTimestamp } from 'lightweight-charts';
+import { followTheme } from '@acme/chart-ext';
 import type { dh as Dh } from '@deephaven/jsapi-types';
 import type { FeedRow } from '@acme/chart-ext';
 import { safeClose, subscribeRows, tableFeed, type DhApi } from '@acme/dh-bindings';
@@ -70,13 +71,12 @@ function SeriesChart({ table, params }: { table: Dh.Table; params: SeriesPanelPa
   useEffect(() => {
     const chart = createChart(el.current!, {
       autoSize: true,
-      layout: { background: { type: ColorType.Solid, color: '#131722' }, textColor: '#d1d4dc', attributionLogo: false },
-      grid: { vertLines: { color: '#1e222d' }, horzLines: { color: '#1e222d' } },
+      layout: { attributionLogo: false },
       crosshair: { mode: CrosshairMode.Normal },
       timeScale: { timeVisible: true, secondsVisible: false },
     });
     const time = params.time ?? 'Timestamp';
-    const cleanups: Array<() => void> = [];
+    const cleanups: Array<() => void> = [followTheme(chart, el.current!)];
     let closed = false;
     const shown: Array<{ name: string; color: string }> = [];
     const panes = new Map<string, number>();

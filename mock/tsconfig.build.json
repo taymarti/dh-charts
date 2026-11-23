@@ -1,0 +1,15 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "declaration": true,
+    "emitDeclarationOnly": true,
+    "outDir": "dist/types",
+    "rootDir": "src",
+    "paths": {
+      "@acme/chart-ext": ["../ext/dist/types/index.d.ts"],
+      "lightweight-charts": ["./node_modules/lightweight-charts"]
+    }
+  },
+  "include": ["src"]
+}

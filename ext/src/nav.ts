@@ -220,9 +220,16 @@ export function bindNavigation(chart: IChartApi, series: ISeriesApi<SeriesType>,
       pendingTarget = undefined;
       center(t);
     }
-    nowBtn.style.visibility = isAtNow() ? 'hidden' : 'visible';
-    place();
+    // the button and the overlay's position on the next frame: measuring the layout here, inside the feed's update,
+    // forced a synchronous layout of the whole page on every tick
+    if (!frame)
+      frame = requestAnimationFrame(() => {
+        frame = 0;
+        nowBtn.style.visibility = isAtNow() ? 'hidden' : 'visible';
+        place();
+      });
   };
+  let frame = 0;
   const center = (t: number) => {
     const r = ts.getVisibleRange();
     const span = r ? Number(r.to) - Number(r.from) : 3600;
@@ -274,8 +281,13 @@ export function bindNavigation(chart: IChartApi, series: ISeriesApi<SeriesType>,
       if (ev.key === 'Escape') closePop();
       ev.stopPropagation();
     });
+    const x = document.createElement('button');
+    x.textContent = '✕';
+    x.title = 'Close';
+    Object.assign(x.style, BTN);
+    x.addEventListener('click', closePop);
     pop.addEventListener('mousedown', ev => ev.stopPropagation());
-    pop.append(input, go);
+    pop.append(input, go, x);
     host.appendChild(pop);
     pop.style.right = box.style.right;
     pop.style.top = `${parseFloat(box.style.top) - 50}px`;
@@ -303,7 +315,17 @@ export function bindNavigation(chart: IChartApi, series: ISeriesApi<SeriesType>,
   window.addEventListener('keydown', onKey);
   ts.subscribeVisibleLogicalRangeChange(onRange);
   series.subscribeDataChanged(onData);
-  const ro = new ResizeObserver(place);
+  // A chart in a hidden tab has no width: a window applied then (data that came while it was hidden) leaves every bar
+  // squeezed into a few pixels once it shows. Apply the window again when it first gets a size, unless the user has
+  // moved the view since.
+  let hidden = host.clientWidth === 0;
+  const onSize = () => {
+    place();
+    const nowHidden = host.clientWidth === 0;
+    if (hidden && !nowHidden && !userTouched && applied !== undefined && lastTime() != null) requestAnimationFrame(() => applyWindow());
+    hidden = nowHidden;
+  };
+  const ro = new ResizeObserver(onSize);
   ro.observe(host);
   place();
   nowBtn.style.visibility = 'hidden';
@@ -316,6 +338,7 @@ export function bindNavigation(chart: IChartApi, series: ISeriesApi<SeriesType>,
       if (opts.historyComplete) loading.style.display = 'none';
     },
     dispose() {
+      cancelAnimationFrame(frame);
       clearTimeout(settleTimer);
       clearTimeout(pendingTimer);
       ro.disconnect();

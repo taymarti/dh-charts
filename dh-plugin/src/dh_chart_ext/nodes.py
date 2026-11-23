@@ -19,13 +19,20 @@ The layers, each holding its parent:
   ("chart", sym, secs, studies)  the bars with the studies' columns (update_by on the bars node)
 
 Columns of a bars or chart node: Timestamp Open High Low Close Volume Updated, then the study columns.
+
+Daily and weekly charts over a long history: ChartNodes(source, history=older_ticks) puts older ticks (the same
+columns as source.ticks, all before them) behind charts of a day and up:
+  1D                 daily bars of every symbol, built once (on first use) from the history and the ticks (UTC days)
+  1W and up          a rollup of the instrument's daily bars, weeks starting on Monday
+  spreads            at a day and up, from the history's ticks too
+`symbols=` fixes the universe, so a request doesn't snapshot the ticks' distinct symbols.
 """
 from __future__ import annotations
 
 import re
 from typing import Iterable, Optional, Sequence, Union
 
-from deephaven import agg
+from deephaven import agg, merge
 from deephaven.table import Table
 
 from .cache import NodeCache
@@ -33,11 +40,13 @@ from .data import RESOLUTIONS, STUDY_TYPES, Study, bars, for_symbol, is_expressi
     spread_ticks, with_studies
 
 MAX_STUDIES = 8
-MIN_SECONDS, MAX_SECONDS = 1, 86400
-_SHORT = re.compile(r"^(\d+)\s*([smhd])$", re.I)
-_UNIT = {"s": 1, "m": 60, "h": 3600, "d": 86400}
+MIN_SECONDS, MAX_SECONDS = 1, 7 * 86400
+_SHORT = re.compile(r"^(\d+)\s*([smhdw])$", re.I)
+_UNIT = {"s": 1, "m": 60, "h": 3600, "d": 86400, "w": 7 * 86400}
 
 StudySpec = Union[str, dict, Study]
+DAY_S = 86400
+WEEK_OFFSET_S = 4 * DAY_S  # the epoch was a Thursday: weeks binned with this offset start on Monday
 
 
 def resolution_secs(res: Union[str, int]) -> int:
@@ -49,12 +58,12 @@ def resolution_secs(res: Union[str, int]) -> int:
     else:
         secs = resolution_seconds(str(res))
     if not MIN_SECONDS <= secs <= MAX_SECONDS:
-        raise ValueError(f"resolution {res!r} is outside 1s..1d")
+        raise ValueError(f"resolution {res!r} is outside 1s..1w")
     return secs
 
 
 def resolution_name(secs: int) -> str:
-    for unit, n in (("d", 86400), ("h", 3600), ("m", 60)):
+    for unit, n in (("w", 7 * 86400), ("d", 86400), ("h", 3600), ("m", 60)):
         if secs % n == 0:
             return f"{secs // n}{unit}"
     return f"{secs}s"
@@ -70,7 +79,8 @@ def study_of(spec: StudySpec) -> Study:
         type_, *vals = str(spec).split("_")
         if type_ not in STUDY_TYPES:
             raise ValueError(f"unknown study {spec!r}")
-        params = dict(zip(STUDY_TYPES[type_].params, vals))
+        # a float parameter is written with 'p' for '.' in keys ("KC_20_1p5"): column names cannot hold a '.'
+        params = dict(zip(STUDY_TYPES[type_].params, [v.replace("p", ".") for v in vals]))
     if type_ not in STUDY_TYPES:
         raise ValueError(f"unknown study type {type_!r}")
     defaults = STUDY_TYPES[type_].params
@@ -88,10 +98,12 @@ def study_of(spec: StudySpec) -> Study:
     return STUDY_TYPES[type_].build(clean)
 
 
-def rollup_bars(t: Table, secs: int) -> Table:
-    """Bars of a finer resolution rolled up to `secs` (one symbol, no Sym column)."""
+def rollup_bars(t: Table, secs: int, offset_s: int = 0) -> Table:
+    """Bars of a finer resolution rolled up to `secs` (one symbol, no Sym column); with `offset_s`, bins start that
+    long after each multiple of `secs` from the epoch (WEEK_OFFSET_S: weeks from Monday)."""
+    binned = f"lowerBin(Timestamp, {secs}L * SECOND, {offset_s}L * SECOND)" if offset_s else f"lowerBin(Timestamp, {secs}L * SECOND)"
     return (
-        t.update_view(f"Bar = lowerBin(Timestamp, {secs}L * SECOND)")
+        t.update_view(f"Bar = {binned}")
         .agg_by([agg.first("Open"), agg.max_("High"), agg.min_("Low"), agg.last("Close"), agg.sum_("Volume"),
                  agg.last("Updated")], by="Bar")
         .rename_columns("Timestamp=Bar")
@@ -102,14 +114,29 @@ def rollup_bars(t: Table, secs: int) -> Table:
 class ChartNodes:
     """Builds and shares the tables behind charts, for one ChartSource (workspace.ChartSource)."""
 
-    def __init__(self, source, cache: Optional[NodeCache] = None):
+    def __init__(self, source, cache: Optional[NodeCache] = None, *, history: Optional[Table] = None,
+                 symbols: Optional[Sequence[str]] = None):
         self.source = source
         self.cache = cache or NodeCache()
         self._standard = {resolution_seconds(r): r for r in source.resolutions}
+        self.history = history
+        # in time order: the long history, then the live ticks
+        self.all_ticks = merge([history, source.ticks]) if history is not None else source.ticks
+        self._daily: Optional[Table] = None
+        self._known = sorted(symbols) if symbols is not None else None
+
+    @property
+    def daily(self) -> Table:
+        """Daily bars of every symbol from the history and the ticks (with `history=`), built on first use."""
+        if self._daily is None:
+            self._daily = bars(self.all_ticks, f"PT{DAY_S}S", by=self.source.by)
+        return self._daily
 
     # ----------------------------------------------------------------- requests
 
     def symbols(self) -> list[str]:
+        if self._known is not None:
+            return self._known
         from deephaven import numpy as dhnp
 
         snap = self.source.symbols_table.snapshot()
@@ -174,6 +201,8 @@ class ChartNodes:
 
     def _build_bars(self, sym: str, secs: int, deps: list, symbols) -> Table:
         src = self.source
+        if self.history is not None and secs % DAY_S == 0:
+            return self._build_long(sym, secs, deps, symbols)
         if is_expression(sym):
             tkey = ("ticks", sym)
             ticks = self.cache.acquire(tkey, lambda _d: spread_ticks(src.ticks, sym, symbols or self.symbols(), by=src.by))
@@ -187,6 +216,20 @@ class ChartNodes:
             deps.append(pkey)
             return rollup_bars(parent, secs)
         return bars(for_symbol(src.ticks, sym, by=src.by), f"PT{secs}S", by=None)
+
+    def _build_long(self, sym: str, secs: int, deps: list, symbols) -> Table:
+        """A day and up, over the history: daily bars, a spread's daily bars, or a rollup of the daily node."""
+        by = self.source.by
+        if secs == DAY_S:
+            if not is_expression(sym):
+                return for_symbol(self.daily, sym, by=by)
+            tkey = ("long_ticks", sym)
+            ticks = self.cache.acquire(tkey, lambda _d: spread_ticks(self.all_ticks, sym, symbols or self.symbols(), by=by))
+            deps.append(tkey)
+            return bars(ticks, f"PT{DAY_S}S", by=by, size_col=None).drop_columns(by)
+        pkey, parent = self.bars(sym, DAY_S, symbols=symbols)
+        deps.append(pkey)
+        return rollup_bars(parent, secs, WEEK_OFFSET_S if secs % (7 * DAY_S) == 0 else 0)
 
 
 def resolution_options(extra: Sequence[str] = ("2m", "15m", "30m", "1h")) -> list[str]:

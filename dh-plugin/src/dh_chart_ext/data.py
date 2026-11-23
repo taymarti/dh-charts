@@ -29,7 +29,8 @@ from typing import Optional, Sequence
 
 from deephaven import agg
 from deephaven.table import Table
-from deephaven.updateby import cum_sum, delta, ema_tick, rolling_avg_tick, rolling_std_tick
+from deephaven.updateby import (cum_sum, delta, ema_tick, rolling_avg_tick, rolling_max_tick, rolling_min_tick, rolling_std_tick,
+                                rolling_sum_tick)
 
 # ----------------------------------------------------------------------------- resolutions
 
@@ -111,9 +112,24 @@ class Study:
         """Short name for toolbars and persistence, e.g. 'EMA_20'."""
         return self.columns()[0]
 
+    @property
+    def levels(self) -> Optional[list]:
+        """Fixed reference levels to draw on the study's pane (RSI 30 and 70), or None."""
+        return [30.0, 70.0] if self.pane == "rsi" else None
+
+    @property
+    def histogram(self) -> tuple:
+        """Columns to draw as a histogram (MACD's), not a line."""
+        return ()
+
 
 def _by(by: Optional[str]) -> list[str]:
     return [by] if by else []
+
+
+def _num(v) -> str:
+    """A parameter in a key or column name: 20, 2, 1p5 (column names cannot hold a '.')."""
+    return f"{v:g}".replace(".", "p")
 
 
 @dataclass(frozen=True)
@@ -149,7 +165,7 @@ class Bollinger(Study):
     k: float = 2.0
 
     def _p(self):
-        return f"BB_{self.n}_{self.k:g}"
+        return f"BB_{self.n}_{_num(self.k)}"
 
     def columns(self):
         p = self._p()
@@ -220,6 +236,267 @@ class Volume(Study):
 
     def apply(self, t, by):
         return t
+
+
+def _tr(p: str) -> list[str]:
+    """Formulas for the true range (column {p}_TR) from Close's delta {p}_D."""
+    return [f"{p}_PC = isNull({p}_D) ? Close : Close - {p}_D",
+            f"{p}_TR = Math.max(High - Low, Math.max(Math.abs(High - {p}_PC), Math.abs(Low - {p}_PC)))"]
+
+
+def _wilder(n: int) -> float:
+    """ema_tick's time constant for Wilder smoothing (alpha = 1/n)."""
+    return -1.0 / math.log(1.0 - 1.0 / n)
+
+
+def _alpha(n: int) -> float:
+    """ema_tick's time constant for an n-bar EMA (alpha = 2/(n+1))."""
+    return -1.0 / math.log(1.0 - 2.0 / (n + 1.0))
+
+
+@dataclass(frozen=True)
+class WMA(Study):
+    """Linearly weighted moving average of Close over `n` bars (weights 1..n, newest heaviest). From rolling sums:
+    with I the bar's count, sum((I_j - (I - n)) * C_j) = sum(I_j C_j) - (I - n) sum(C_j)."""
+    n: int = 20
+
+    def columns(self):
+        return [f"WMA_{self.n}"]
+
+    def apply(self, t, by):
+        c, n = f"WMA_{self.n}", self.n
+        return (
+            t.update_view(f"{c}_One = 1.0")
+            .update_by(cum_sum(f"{c}_I={c}_One"), by=_by(by))
+            .update_view(f"{c}_IC = {c}_I * Close")
+            .update_by([rolling_sum_tick(f"{c}_S=Close", rev_ticks=n), rolling_sum_tick(f"{c}_U={c}_IC", rev_ticks=n)], by=_by(by))
+            .update_view(f"{c} = {c}_I < {n} ? NULL_DOUBLE : ({c}_U - ({c}_I - {n}) * {c}_S) / ({n} * ({n} + 1) / 2.0)")
+            .drop_columns([f"{c}_One", f"{c}_I", f"{c}_IC", f"{c}_S", f"{c}_U"])
+        )
+
+
+@dataclass(frozen=True)
+class Keltner(Study):
+    """Keltner channels: EMA(n) of Close +/- k x ATR(n) (Wilder)."""
+    n: int = 20
+    k: float = 1.5
+
+    def _p(self):
+        return f"KC_{self.n}_{_num(self.k)}"
+
+    def columns(self):
+        p = self._p()
+        return [f"{p}_Upper", f"{p}_Mid", f"{p}_Lower"]
+
+    @property
+    def key(self):
+        return self._p()
+
+    def apply(self, t, by):
+        p = self._p()
+        return (
+            t.update_by(delta(f"{p}_D=Close"), by=_by(by))
+            .update_view(_tr(p))
+            .update_by([ema_tick(_alpha(self.n), f"{p}_Mid=Close"), ema_tick(_wilder(self.n), f"{p}_ATR={p}_TR")], by=_by(by))
+            .update_view([f"{p}_Upper = {p}_Mid + {self.k} * {p}_ATR", f"{p}_Lower = {p}_Mid - {self.k} * {p}_ATR"])
+            .drop_columns([f"{p}_D", f"{p}_PC", f"{p}_TR", f"{p}_ATR"])
+        )
+
+
+@dataclass(frozen=True)
+class Donchian(Study):
+    """Donchian channels: the highest High and lowest Low of `n` bars, and their midpoint."""
+    n: int = 20
+
+    def columns(self):
+        p = f"DC_{self.n}"
+        return [f"{p}_Upper", f"{p}_Mid", f"{p}_Lower"]
+
+    @property
+    def key(self):
+        return f"DC_{self.n}"
+
+    def apply(self, t, by):
+        p = f"DC_{self.n}"
+        return t.update_by([rolling_max_tick(f"{p}_Upper=High", rev_ticks=self.n), rolling_min_tick(f"{p}_Lower=Low", rev_ticks=self.n)],
+                           by=_by(by)).update_view(f"{p}_Mid = ({p}_Upper + {p}_Lower) / 2.0")
+
+
+@dataclass(frozen=True)
+class Stochastic(Study):
+    """Stochastic oscillator: %K over `k` bars and its `d`-bar average %D, 0-100."""
+    k: int = 14
+    d: int = 3
+
+    def _p(self):
+        return f"STOCH_{self.k}_{self.d}"
+
+    def columns(self):
+        return [f"{self._p()}_K", f"{self._p()}_D"]
+
+    @property
+    def key(self):
+        return self._p()
+
+    @property
+    def pane(self):
+        return "stoch"
+
+    @property
+    def levels(self):
+        return [20.0, 80.0]
+
+    def apply(self, t, by):
+        p = self._p()
+        return (
+            t.update_by([rolling_max_tick(f"{p}_HH=High", rev_ticks=self.k), rolling_min_tick(f"{p}_LL=Low", rev_ticks=self.k)], by=_by(by))
+            .update_view(f"{p}_K = {p}_HH == {p}_LL ? 50.0 : 100.0 * (Close - {p}_LL) / ({p}_HH - {p}_LL)")
+            .update_by(rolling_avg_tick(f"{p}_D={p}_K", rev_ticks=self.d), by=_by(by))
+            .drop_columns([f"{p}_HH", f"{p}_LL"])
+        )
+
+
+@dataclass(frozen=True)
+class MACD(Study):
+    """MACD: EMA(fast) - EMA(slow) of Close, its EMA(signal), and the difference as a histogram."""
+    fast: int = 12
+    slow: int = 26
+    signal: int = 9
+
+    def _p(self):
+        return f"MACD_{self.fast}_{self.slow}_{self.signal}"
+
+    def columns(self):
+        p = self._p()
+        return [p, f"{p}_Signal", f"{p}_Hist"]
+
+    @property
+    def key(self):
+        return self._p()
+
+    @property
+    def pane(self):
+        return "macd"
+
+    @property
+    def levels(self):
+        return [0.0]
+
+    @property
+    def histogram(self):
+        return (f"{self._p()}_Hist",)
+
+    def apply(self, t, by):
+        p = self._p()
+        return (
+            t.update_by([ema_tick(_alpha(self.fast), f"{p}_F=Close"), ema_tick(_alpha(self.slow), f"{p}_S=Close")], by=_by(by))
+            .update_view(f"{p} = {p}_F - {p}_S")
+            .update_by(ema_tick(_alpha(self.signal), f"{p}_Signal={p}"), by=_by(by))
+            .update_view(f"{p}_Hist = {p} - {p}_Signal")
+            .drop_columns([f"{p}_F", f"{p}_S"])
+        )
+
+
+@dataclass(frozen=True)
+class ROC(Study):
+    """Rate of change: percent change of Close over `n` bars. The close n bars back is a difference of rolling
+    sums (n+1 bars minus n bars), so it stays incremental."""
+    n: int = 10
+
+    def columns(self):
+        return [f"ROC_{self.n}"]
+
+    @property
+    def pane(self):
+        return "roc"
+
+    @property
+    def levels(self):
+        return [0.0]
+
+    def apply(self, t, by):
+        c, n = f"ROC_{self.n}", self.n
+        return (
+            t.update_view(f"{c}_One = 1.0")
+            .update_by([cum_sum(f"{c}_I={c}_One"), rolling_sum_tick(f"{c}_A=Close", rev_ticks=n + 1), rolling_sum_tick(f"{c}_B=Close", rev_ticks=n)],
+                       by=_by(by))
+            .update_view(f"{c} = {c}_I <= {n} || ({c}_A - {c}_B) == 0 ? NULL_DOUBLE : 100.0 * (Close / ({c}_A - {c}_B) - 1.0)")
+            .drop_columns([f"{c}_One", f"{c}_I", f"{c}_A", f"{c}_B"])
+        )
+
+
+@dataclass(frozen=True)
+class ATR(Study):
+    """Average true range (Wilder smoothing over `n` bars)."""
+    n: int = 14
+
+    def columns(self):
+        return [f"ATR_{self.n}"]
+
+    @property
+    def pane(self):
+        return "atr"
+
+    def apply(self, t, by):
+        c = f"ATR_{self.n}"
+        return (
+            t.update_by(delta(f"{c}_D=Close"), by=_by(by))
+            .update_view(_tr(c))
+            .update_by(ema_tick(_wilder(self.n), f"{c}={c}_TR"), by=_by(by))
+            .drop_columns([f"{c}_D", f"{c}_PC", f"{c}_TR"])
+        )
+
+
+@dataclass(frozen=True)
+class RealizedVol(Study):
+    """Realized volatility, annualized %, over `n` bars: the standard deviation of log returns scaled by each
+    bar's actual length (so a 1-minute and a daily chart give comparable numbers)."""
+    n: int = 20
+
+    def columns(self):
+        return [f"RVOL_{self.n}"]
+
+    @property
+    def pane(self):
+        return "rvol"
+
+    def apply(self, t, by):
+        c = f"RVOL_{self.n}"
+        return (
+            t.update_view(f"{c}_Ns = (double) epochNanos(Timestamp)")
+            .update_by([delta(f"{c}_D=Close"), delta(f"{c}_Dt={c}_Ns")], by=_by(by))
+            .update_view([f"{c}_PC = isNull({c}_D) ? NULL_DOUBLE : Close - {c}_D",
+                          f"{c}_Y = isNull({c}_Dt) || {c}_Dt <= 0 ? NULL_DOUBLE : {c}_Dt / (365.25 * 86400.0e9)",
+                          f"{c}_Z = isNull({c}_PC) || isNull({c}_Y) || {c}_PC <= 0 || Close <= 0 ? NULL_DOUBLE : Math.log(Close / {c}_PC) / Math.sqrt({c}_Y)"])
+            .update_by(rolling_std_tick(f"{c}_S={c}_Z", rev_ticks=self.n), by=_by(by))
+            .update_view(f"{c} = 100.0 * {c}_S")
+            .drop_columns([f"{c}_Ns", f"{c}_D", f"{c}_Dt", f"{c}_PC", f"{c}_Y", f"{c}_Z", f"{c}_S"])
+        )
+
+
+@dataclass(frozen=True)
+class ZScore(Study):
+    """Distance of Close from its `n`-bar mean, in standard deviations."""
+    n: int = 50
+
+    def columns(self):
+        return [f"ZSCORE_{self.n}"]
+
+    @property
+    def pane(self):
+        return "zscore"
+
+    @property
+    def levels(self):
+        return [-2.0, 0.0, 2.0]
+
+    def apply(self, t, by):
+        c = f"ZSCORE_{self.n}"
+        return (
+            t.update_by([rolling_avg_tick(f"{c}_M=Close", rev_ticks=self.n), rolling_std_tick(f"{c}_S=Close", rev_ticks=self.n)], by=_by(by))
+            .update_view(f"{c} = isNull({c}_S) || {c}_S == 0 ? NULL_DOUBLE : (Close - {c}_M) / {c}_S")
+            .drop_columns([f"{c}_M", f"{c}_S"])
+        )
 
 
 STUDIES = {
@@ -386,8 +663,43 @@ STUDY_TYPES = {
     "VWAP": StudyType("VWAP", "Volume", {}, lambda p: VWAP()),
     "RSI": StudyType("Relative Strength Index", "Oscillators", {"length": 14}, lambda p: RSI(int(p["length"]))),
     "Volume": StudyType("Volume", "Volume", {}, lambda p: Volume()),
+    "WMA": StudyType("Moving Average Weighted", "Moving averages", {"length": 20}, lambda p: WMA(int(p["length"]))),
+    "KC": StudyType("Keltner Channels", "Bands and channels", {"length": 20, "mult": 1.5}, lambda p: Keltner(int(p["length"]), float(p["mult"]))),
+    "DC": StudyType("Donchian Channels", "Bands and channels", {"length": 20}, lambda p: Donchian(int(p["length"]))),
+    "STOCH": StudyType("Stochastic", "Oscillators", {"k": 14, "d": 3}, lambda p: Stochastic(int(p["k"]), int(p["d"]))),
+    "MACD": StudyType("MACD", "Momentum", {"fast": 12, "slow": 26, "signal": 9},
+                      lambda p: MACD(int(p["fast"]), int(p["slow"]), int(p["signal"]))),
+    "ROC": StudyType("Rate of Change", "Momentum", {"length": 10}, lambda p: ROC(int(p["length"]))),
+    "ATR": StudyType("Average True Range", "Volatility", {"length": 14}, lambda p: ATR(int(p["length"]))),
+    "RVOL": StudyType("Realized Volatility", "Volatility", {"length": 20}, lambda p: RealizedVol(int(p["length"]))),
+    "ZSCORE": StudyType("Z-Score", "Statistics", {"length": 50}, lambda p: ZScore(int(p["length"]))),
 }
 """What UIs offer in their indicators dialog. An instance is {id, type, params, color, visible}."""
+
+# what a study is, for menus, and whether it needs volume (no VWAP on a yield or a spread)
+STUDY_INFO = {
+    "EMA": ("Exponential moving average of the close", False), "SMA": ("Simple moving average of the close", False),
+    "WMA": ("Linearly weighted moving average", False), "BB": ("SMA ± mult standard deviations", False), "KC": ("EMA ± mult ATR", False),
+    "DC": ("Highest high and lowest low", False), "VWAP": ("Volume-weighted average price, resets each New York day", True),
+    "Volume": ("Contracts or shares traded per bar", True), "RSI": ("Wilder's RSI", False), "STOCH": ("%K and its %D signal", False),
+    "MACD": ("EMA difference, signal line and histogram", False), "ROC": ("Percent change (prices) or change (yields, spreads) over length bars", False),
+    "ATR": ("Wilder's average true range", False), "RVOL": ("Annualized: % for prices, bp for yields and spreads", False),
+    "ZSCORE": ("Distance from the rolling mean in standard deviations", False),
+}
+
+
+def study_menu(has_volume: bool = True) -> list[dict]:
+    """The study types for a menu: type, label, group, params, pane, levels, needs_volume, description; without the
+    ones that need volume when the instrument has none."""
+    out = []
+    for k, t in STUDY_TYPES.items():
+        desc, needs_vol = STUDY_INFO.get(k, ("", False))
+        if needs_vol and not has_volume:
+            continue
+        s = t.build()
+        out.append({"type": k, "label": t.label, "group": t.group, "params": t.params, "pane": s.pane,
+                    "levels": list(s.levels) if s.levels else None, "needs_volume": needs_vol, "description": desc})
+    return out
 
 
 def study_label(type_: str, params: Optional[dict] = None) -> str:

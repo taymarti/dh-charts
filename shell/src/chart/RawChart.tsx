@@ -21,7 +21,7 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { dh as Dh } from '@deephaven/jsapi-types';
-import { ColorType, CrosshairMode, PriceScaleMode, createChart, type IChartApi, type ISeriesApi, type SeriesType } from 'lightweight-charts';
+import { CrosshairMode, PriceScaleMode, createChart, type IChartApi, type ISeriesApi, type SeriesType } from 'lightweight-charts';
 import {
   bindAlertLines,
   bindCompare,
@@ -33,6 +33,7 @@ import {
   bindPriceLines,
   bindSessionShading,
   bindSync,
+  followTheme,
   describeAlert,
   formatDuration,
   marketStatus,
@@ -118,8 +119,7 @@ export function RawChart({
     const zone = timeZoneOptions(timeZone);
     const chart = createChart(el.current!, {
       autoSize: true,
-      layout: { background: { type: ColorType.Solid, color: '#131722' }, textColor: '#d1d4dc', attributionLogo: false },
-      grid: { vertLines: { color: '#1e222d' }, horzLines: { color: '#1e222d' } },
+      layout: { attributionLogo: false },
       crosshair: { mode: CrosshairMode.Normal },
       localization: zone.localization,
       // minBarSpacing: let days of 1-minute bars fit the width (the default 0.5 px caps a view at ~1500 bars)
@@ -127,7 +127,8 @@ export function RawChart({
     });
     chartRef.current = chart;
     let closed = false;
-    const cleanups: (() => void)[] = [];
+    // colours from the page's --acme-chart-* properties (defaults: the TradingView dark theme)
+    const cleanups: (() => void)[] = [followTheme(chart, el.current!)];
 
     (async () => {
       // the data: a shared node from the chart API, or a published table filtered to the symbol
@@ -467,7 +468,7 @@ export function RawWorkspace({
   };
   const scaleShown = shownCompare.length && (value.scale ?? 'normal') === 'normal' ? 'percent' : value.scale;
   return (
-    <div style={{ position: 'absolute', inset: 0, display: 'flex', background: '#131722' }}>
+    <div style={{ position: 'absolute', inset: 0, display: 'flex', background: 'var(--acme-bg, #131722)' }}>
       <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
         <ChartToolbar value={{ ...value, symbol: sym, studies: keys, scale: scaleShown }} options={toolbarOptions(symbols, api)} onChange={onToolbar} />
         <div style={{ position: 'relative', flex: 1 }}>

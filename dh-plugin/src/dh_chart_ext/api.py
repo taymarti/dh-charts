@@ -22,7 +22,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from .data import STUDY_TYPES
+from .data import study_menu
 from .instruments import tick_for
 from .nodes import ChartNodes, resolution_name, resolution_options
 from .rpc import Api, Context, Reply
@@ -33,8 +33,11 @@ RSI_LEVELS = [30.0, 70.0]
 class ChartApi(Api):
     """The chart methods over a ChartSource's nodes."""
 
-    def __init__(self, source, nodes: Optional[ChartNodes] = None, *, name: str = "chart_api", **kw):
+    def __init__(self, source, nodes: Optional[ChartNodes] = None, *, name: str = "chart_api", meta=None, **kw):
+        """`meta(sym) -> dict`, optional: more about the instrument for every chart reply (unit, notation,
+        decimals, name...), so front ends can display it without a second request."""
         super().__init__(name, **kw)
+        self.meta = meta
         self.nodes = nodes or source.nodes
         nodes_ = self.nodes
 
@@ -48,10 +51,12 @@ class ChartApi(Api):
             key, table, _cols = nodes_.chart(sym, res, list(objs.values()))
             if not hold(ctx, key):
                 return None
-            columns = [{"column": c, "pane": s.pane, "study": k, **({"levels": RSI_LEVELS} if s.pane == "rsi" else {})}
+            columns = [{"column": c, "pane": s.pane, "study": k, **({"levels": s.levels} if s.levels else {}),
+                        **({"histogram": True} if c in s.histogram else {})}
                        for k, s in objs.items() for c in s.columns()]
+            extra = self.meta(key[1]) if self.meta else {}
             return Reply({"key": key, "sym": key[1], "res": resolution_name(key[2]), "columns": columns,
-                          "tick": tick_for(key[1])}, tables=[table])
+                          "tick": tick_for(key[1]), **(extra or {})}, tables=[table])
 
         @self.method(tables=True)
         def bars(ctx, sym: str, res: str):
@@ -72,9 +77,10 @@ class ChartApi(Api):
             return resolution_options()
 
         @self.method
-        def studies(ctx):
-            """The study types and their parameters' defaults."""
-            return [{"type": k, "label": t.label, "group": t.group, "params": t.params} for k, t in STUDY_TYPES.items()]
+        def studies(ctx, sym: str = ""):
+            """The study types: parameters, panes, levels; for `sym`, only the ones that apply to it (meta's has_volume)."""
+            info = (self.meta(sym) or {}) if (sym and self.meta) else {}
+            return study_menu(bool(info.get("has_volume", True)))
 
         @self.method
         def stats(ctx):

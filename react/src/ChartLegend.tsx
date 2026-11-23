@@ -147,7 +147,11 @@ export function ChartLegend({ chart, series, title, studies = [], studyTypes, on
   };
   const precision = (s: ISeriesApi<SeriesType>) => (s.options().priceFormat as { precision?: number } | undefined)?.precision ?? 2;
   const p = precision(price);
-  const f = (v: number | undefined, prec = p) => (v == null || !Number.isFinite(v) ? '—' : v.toFixed(prec));
+  // a series with a custom price format (Treasury 32nds) is shown the way its axis shows it
+  const pf = price.options().priceFormat as { type?: string; formatter?: (v: number) => string } | undefined;
+  const custom = pf?.type === 'custom' && typeof pf.formatter === 'function' ? pf.formatter : null;
+  const f = (v: number | undefined, prec = p) => (v == null || !Number.isFinite(v) ? '—' : custom && prec === p ? custom(v) : v.toFixed(prec));
+  const fChg = (d: number) => (custom ? custom(Math.abs(d)) : Math.abs(d).toFixed(p));
 
   const bar = valueOf(price);
   const close = bar?.close ?? bar?.value;
@@ -174,8 +178,8 @@ export function ChartLegend({ chart, series, title, studies = [], studyTypes, on
         {bar?.open != null ? [ohlc('O', bar.open), ohlc('H', bar.high), ohlc('L', bar.low), ohlc('C', bar.close)] : ohlc('', close)}
         {chg != null && prevClose ? (
           <span style={{ color }}>
-            {chg >= 0 ? '+' : ''}
-            {chg.toFixed(p)} ({chg >= 0 ? '+' : ''}
+            {chg >= 0 ? '+' : '-'}
+            {fChg(chg)} ({chg >= 0 ? '+' : ''}
             {((100 * chg) / Math.abs(prevClose)).toFixed(2)}%)
           </span>
         ) : null}

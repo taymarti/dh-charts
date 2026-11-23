@@ -30,3 +30,4 @@ export {
   type TableLease,
 } from './connection';
 export { TableViewport, columnsOf, parseQuickFilter, type ColumnInfo, type QuickFilter, type SortSpec, type ViewportSnapshot } from './viewport';
+export { serverAvailable } from './server-probe';

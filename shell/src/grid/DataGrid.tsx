@@ -14,9 +14,9 @@ import type { dh as Dh } from '@deephaven/jsapi-types';
 import { TableViewport, columnsOf, type ColumnInfo, type Row, type SortSpec, type ViewportSnapshot } from '@acme/dh-bindings';
 import { useDeephaven } from '../deephaven';
 
-const ROW_H = 22;
-const HEAD_H = 26;
-const FILTER_H = 24;
+const ROW_H = 26; // shell.css: .acme-grid-cell line-height
+const HEAD_H = 30;
+const FILTER_H = 28;
 const MAX_SPACER = 10_000_000; // px; browsers cap element height (Chrome ~33M, Firefox ~17M)
 const OVERSCAN = 30;
 
@@ -192,7 +192,7 @@ export function DataGrid({ table, initial, onStateChange, onRowClick, highlight,
                 onClick={row && onRowClick ? () => onRowClick(row, index) : undefined}
               >
                 {cols.map(c => (
-                  <div key={c.name} className="acme-grid-cell" style={cell(c)}>
+                  <div key={c.name} className={`acme-grid-cell${row ? signClass(row[c.name], c) : ''}`} style={cell(c)}>
                     {row ? format(row[c.name], c) : ''}
                   </div>
                 ))}
@@ -224,9 +224,25 @@ export function formatCell(v: unknown, c: ColumnInfo): string {
   return String(v);
 }
 
+/** Change and P&L columns are colored by sign (green up, red down). */
+const SIGNED = /(chg|change|pnl|unrealized|surprise|move)/i;
+function signClass(v: unknown, c: ColumnInfo): string {
+  if (!SIGNED.test(c.name)) return '';
+  if (typeof v === 'number') return !v ? '' : v > 0 ? ' up' : ' down';
+  // a change already formatted as text ("+0-04+", "-1.2bp")
+  if (typeof v === 'string') return /^\+\d/.test(v) && !/^\+0[-.]0+$/.test(v) ? ' up' : /^-\d/.test(v) ? ' down' : '';
+  return '';
+}
+
 const pad = (n: number, w = 2) => String(n).padStart(w, '0');
+/**
+ * Today's times as hh:mm:ss (.mmm only when there are milliseconds); other days with the date; a time at
+ * exactly midnight UTC is a date (maturities, meeting days), shown as that UTC date, not the evening before.
+ */
 function formatTime(d: Date): string {
+  if (d.getTime() % 86_400_000 === 0) return d.toISOString().slice(0, 10);
   const today = new Date();
-  const time = `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}.${pad(d.getMilliseconds(), 3)}`;
+  const ms = d.getMilliseconds();
+  const time = `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}${ms ? '.' + pad(ms, 3) : ''}`;
   return d.toDateString() === today.toDateString() ? time : `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${time}`;
 }

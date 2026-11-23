@@ -1,8 +1,8 @@
 """
 The app's own update graph, for a front end's graph explorer, behind the request API.
 
-    from dh_introspect import introspect          # deephaven-compare/introspect (not a package yet)
-    register_introspection(chart_api, introspect)
+    register_introspection(chart_api)               # the bundled dh_chart_ext.dh_introspect
+    register_introspection(chart_api, introspect)   # or another introspect(publish=False) -> report
 
 Method:
 
@@ -19,12 +19,14 @@ from __future__ import annotations
 
 import threading
 import time
-from typing import Callable
+from typing import Callable, Optional
 
 from .rpc import Api
 
 
-def register_introspection(api: Api, introspect: Callable[..., dict], *, cache_s: float = 10.0) -> None:
+def register_introspection(api: Api, introspect: Optional[Callable[..., dict]] = None, *, cache_s: float = 10.0) -> None:
+    if introspect is None:
+        from .dh_introspect import introspect
     lock = threading.Lock()
     cached: dict = {"at": 0.0, "rep": None}
 

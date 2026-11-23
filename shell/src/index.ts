@@ -11,6 +11,11 @@
  *   seriesPanel, strategiesPanel       line charts of any table; strategies and backtests (dh_chart_ext.backtests)
  *   RawChart, RawWorkspace,            front-end group C's chart, and the page's chart stores
  *   usePageStores
+ *   chartWorkspacePanel                group C's full chart workspace on a chart API: study instances, expressions,
+ *                                      chart types, notation (32nds, %, bp), compare, side panels
+ *   requestOnce, useFilteredRows,      data hooks for panels
+ *   usePolled
+ *   ThemeSwitch, ApiStatus             top-bar pieces: the app's themes, the server's chip
  *
  * Styles: import '@acme/app-shell/style.css' once (it includes dockview's).
  */
@@ -66,3 +71,14 @@ export { strategiesPanel, type RunInfo } from './backtest/StrategiesPanel';
 export { graphPanel, layoutGraph, type GraphNode, type GraphReply } from './graph/GraphPanel';
 export { RawChart, RawWorkspace, type ChartData } from './chart/RawChart';
 export { usePageStores, type PageStoreTables } from './chart/page-stores';
+export {
+  chartWorkspacePanel,
+  instancesOf,
+  newStudy,
+  type ChartInstrument,
+  type ChartWorkspaceOptions,
+  type ChartWorkspaceParams,
+  type StudyInstance,
+} from './chart/ChartWorkspace';
+export { forgetRequests, requestOnce, useFilteredRows, usePolled } from './hooks';
+export { ApiStatus, ThemeSwitch, restoreTheme, type ThemeChoice } from './status';

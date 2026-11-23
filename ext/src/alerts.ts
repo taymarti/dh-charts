@@ -186,7 +186,12 @@ function toast(title: string, body: string) {
   });
   const h = document.createElement('div');
   h.textContent = `🔔 ${title}`;
-  Object.assign(h.style, { fontWeight: '600', marginBottom: '2px' });
+  Object.assign(h.style, { fontWeight: '600', marginBottom: '2px', paddingRight: '18px', position: 'relative' });
+  const x = document.createElement('span');
+  x.textContent = '✕';
+  x.title = 'Dismiss';
+  Object.assign(x.style, { position: 'absolute', right: '0', top: '0', color: '#787b86', fontWeight: '400' });
+  h.append(x);
   const b = document.createElement('div');
   b.textContent = body;
   b.style.color = '#b2b5be';

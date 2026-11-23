@@ -7,11 +7,14 @@ multipliers and currencies.
     tick_for("ES-NQ")      0.25   (a spread or ratio: the finest leg tick; a ratio has none)
     instruments_table()    Sym, TickSize, Name: publish it for JS clients
 
+    fmt32(110.515625)      "110-16+"  Treasury notation: 32nds, and eighths of a 32nd; parse32 reads it back
+
 The demo's symbols get their real exchange tick sizes (the synthetic prices are not on these grids,
 so charts round them for display).
 """
 from __future__ import annotations
 
+import math
 import re
 from typing import Optional
 
@@ -56,3 +59,39 @@ def instruments_table():
     syms = sorted(INSTRUMENTS)
     return new_table([string_col("Sym", syms), double_col("TickSize", [INSTRUMENTS[s][0] for s in syms]),
                       string_col("Name", [INSTRUMENTS[s][1] for s in syms])])
+
+
+# ----------------------------------------------------------------------------- Treasury notation
+
+def fmt32(price: Optional[float], tick: float = 1 / 256) -> str:
+    """110-16+ = 110 + 16.5/32; a third digit is eighths of a 32nd (2 = 1/4, 6 = 3/4)."""
+    if price is None or not math.isfinite(price):
+        return ""
+    neg = price < 0
+    v = round(abs(price) / tick) * tick
+    whole = math.floor(v + 1e-9)
+    f32 = (v - whole) * 32
+    n32 = math.floor(f32 + 1e-9)
+    eighth = round((f32 - n32) * 8)
+    if eighth == 8:
+        eighth, n32 = 0, n32 + 1
+    if n32 == 32:
+        n32, whole = 0, whole + 1
+    digit = ""
+    if tick < 1 / 32 - 1e-12:
+        digit = ("+" if eighth >= 4 else "") if tick >= 1 / 64 - 1e-12 else ("+" if eighth == 4 else str(eighth))
+    return f"{'-' if neg else ''}{whole}-{n32:02d}{digit}"
+
+
+def parse32(text: str) -> Optional[float]:
+    t = text.strip()
+    m = re.match(r"^(-?\d+)-(\d{2})([+0-7])?$", t)
+    if not m:
+        try:
+            return float(t)
+        except ValueError:
+            return None
+    whole, n32 = int(m.group(1)), int(m.group(2))
+    e = 4 if m.group(3) == "+" else int(m.group(3) or 0)
+    v = abs(whole) + (n32 + e / 8) / 32
+    return -v if whole < 0 else v

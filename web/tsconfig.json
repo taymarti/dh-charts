@@ -32,6 +32,9 @@
       "@acme/app-shell": [
         "../shell/src/index.ts"
       ],
+      "@acme/dh-widgets/widgets": [
+        "../widgets/src/widgets.tsx"
+      ],
       "dockview-react": [
         "../shell/node_modules/dockview-react"
       ]

@@ -40,13 +40,15 @@ from __future__ import annotations
 import inspect
 import json
 import logging
+import math
 import os
 import threading
 import time
 import traceback
 import typing
 from queue import SimpleQueue
-from typing import Any, Callable, Literal, Optional
+from types import SimpleNamespace
+from typing import Any, Callable, Literal, Optional, Sequence
 
 from deephaven.execution_context import get_exec_ctx
 from deephaven.plugin.object_type import BidirectionalObjectType, MessageStream
@@ -57,6 +59,27 @@ log = logging.getLogger(__name__)
 
 TYPE_NAME = "acme.Api"
 VERSION = 2
+REQUIRED = inspect.Parameter.empty  # Api.add: a parameter without a default
+
+
+def json_safe(x):
+    """JSON-safe, recursively: numpy scalars to Python numbers, NaN and infinities to None."""
+    if isinstance(x, dict):
+        return {str(k): json_safe(v) for k, v in x.items()}
+    if isinstance(x, (list, tuple)):
+        return [json_safe(v) for v in x]
+    if isinstance(x, float):
+        return x if math.isfinite(x) else None
+    t = type(x).__module__
+    if t == "numpy":  # without importing numpy
+        if hasattr(x, "dtype") and x.dtype.kind == "b":
+            return bool(x)
+        if hasattr(x, "dtype") and x.dtype.kind in "iu":
+            return int(x)
+        if hasattr(x, "dtype") and x.dtype.kind == "f":
+            v = float(x)
+            return v if math.isfinite(v) else None
+    return x
 
 
 class ApiError(Exception):
@@ -261,6 +284,24 @@ class Api:
             return f
 
         return register(fn) if fn is not None else register
+
+    def add(self, name: str, fn: Callable[["Context", dict], Any], params: Sequence[tuple] = (), *, doc: str = "",
+            tables: bool = False, safe: bool = True):
+        """Register `fn(ctx, args)` with its parameters listed, [(name, type, default)] (default REQUIRED: required),
+        instead of read from a signature: a parameter may then have any name, `yield` included. With `safe`, the
+        reply is made JSON-safe (json_safe; a Reply's result too)."""
+        def handler(ctx, **kw):
+            out = fn(ctx, kw)
+            if not safe:
+                return out
+            return Reply(json_safe(out.result), tables=out.tables) if isinstance(out, Reply) else json_safe(out)
+
+        m = _Method(handler, name, tables)
+        m.params = [SimpleNamespace(name=n, default=d) for n, _t, d in params]
+        m.hints = {n: t for n, t, _d in params}
+        m.doc = doc
+        self.methods[name] = m
+        return m
 
     @property
     def streams(self) -> int:

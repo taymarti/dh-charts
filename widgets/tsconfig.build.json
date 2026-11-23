@@ -1,0 +1,21 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "declaration": true,
+    "emitDeclarationOnly": true,
+    "outDir": "dist/types",
+    "rootDir": "src",
+    "paths": {
+      "@acme/app-shell": ["../shell/dist/types/index.d.ts"],
+      "@acme/chart-ext": ["../ext/dist/types/index.d.ts"],
+      "@acme/chart-react": ["../react/dist/types/index.d.ts"],
+      "@acme/dh-bindings": ["../bindings/dist/types/index.d.ts"],
+      "lightweight-charts": ["../ext/node_modules/lightweight-charts"],
+      "dockview-react": ["../shell/node_modules/dockview-react"],
+      "react": ["./node_modules/@types/react"],
+      "react/jsx-runtime": ["./node_modules/@types/react/jsx-runtime"]
+    }
+  },
+  "include": ["src"]
+}

@@ -1,0 +1,25 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "jsx": "react-jsx",
+    "strict": true,
+    "skipLibCheck": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "types": ["vite/client"],
+    "paths": {
+      "@acme/app-shell": ["../shell/src/index.ts"],
+      "@acme/chart-ext": ["../ext/src/index.ts"],
+      "@acme/chart-react": ["../react/src/index.ts"],
+      "@acme/dh-bindings": ["../bindings/src/index.ts"],
+      "lightweight-charts": ["../ext/node_modules/lightweight-charts"],
+      "dockview-react": ["../shell/node_modules/dockview-react"],
+      "react": ["./node_modules/@types/react"],
+      "react/jsx-runtime": ["./node_modules/@types/react/jsx-runtime"]
+    }
+  },
+  "include": ["src"]
+}

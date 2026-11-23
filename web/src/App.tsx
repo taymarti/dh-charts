@@ -24,11 +24,13 @@
  *                                           RSI and volume panes, compare; nodes shared with every other client);
  *                                           &api=<name> for another API object
  *   &tz=America/Chicago                     the time zone of group C's charts (default: local, as Deephaven's chart)
+
  */
 import { useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { useConnection } from '@deephaven/app-utils';
 import { useApi } from '@deephaven/jsapi-bootstrap';
-import { WidgetView, isWidgetPlugin, usePlugins } from '@deephaven/plugin';
+import { WidgetView } from '@deephaven/plugin';
+import { PluginWidget } from '@acme/dh-widgets/widgets';
 // deephaven.ui elements need a FiberProvider above them (Deephaven's own Dashboard adds one); @deephaven/dashboard
 // does not export it from its index, so import its module directly
 import { FiberProvider } from '@deephaven/dashboard/dist/useFiber.js';
@@ -68,21 +70,6 @@ function Chart({ name }: { name: string }) {
       </div>
     </div>
   );
-}
-
-/**
- * Like WidgetView, but passes the widget descriptor ({ type, name }) as metadata: deephaven.ui's component
- * requires it ("No widget descriptor"), and WidgetView only passes fetch.
- */
-function PluginWidget({ type, name, fetch }: { type: string; name: string; fetch: () => Promise<unknown> }) {
-  const plugins = usePlugins();
-  const plugin = useMemo(
-    () => [...plugins.values()].filter(isWidgetPlugin).find(p => [p.supportedTypes].flat().includes(type)),
-    [plugins, type],
-  );
-  if (plugin == null) return <div>No plugin for {type}</div>;
-  const Component = plugin.component;
-  return <Component fetch={fetch} metadata={{ type, name }} />;
 }
 
 function SingleWidget({ name, type }: { name: string; type: string }) {

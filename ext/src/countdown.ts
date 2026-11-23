@@ -73,12 +73,18 @@ export function bindCountdown(chart: IChartApi, series: ISeriesApi<SeriesType>, 
   };
 
   const timer = setInterval(render, 1000);
-  const onData = () => render();
+  // a data change (every tick) only schedules a render: render() measures the layout, and doing that inside the
+  // feed's update forced a synchronous layout of the whole page on every tick
+  let frame = 0;
+  const onData = () => {
+    if (!frame) frame = requestAnimationFrame(() => ((frame = 0), render()));
+  };
   series.subscribeDataChanged(onData);
   chart.timeScale().subscribeVisibleLogicalRangeChange(onData);
   render();
   return () => {
     clearInterval(timer);
+    cancelAnimationFrame(frame);
     try {
       series.unsubscribeDataChanged(onData);
       chart.timeScale().unsubscribeVisibleLogicalRangeChange(onData);

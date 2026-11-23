@@ -37,14 +37,15 @@ from deephaven.time import dh_now
 from .charts import STUDY_COLORS, price_chart, tick_chart
 from .data import (
     STANDARD_RESOLUTIONS, STUDIES, STUDY_TYPES, Lookback, bars, for_symbol, in_range, is_expression, parse_expression,
-    quotes, resolution_seconds, spread_ticks, standard_set, study_label,
+    quotes, resolution_seconds, spread_ticks, standard_set, study_label, with_studies,
 )
 from .nodes import resolution_options, resolution_secs
 from .sessions import SESSIONS, session_for, sessions_table
 from .store import load_settings, save_settings
 
 # the range menu: the initial view window (seconds; None: everything loaded)
-RANGES = {"5m": 300, "15m": 900, "30m": 1800, "1h": 3600, "4h": 14400, "1D": 86400, "5D": 432000, "All": None}
+RANGES = {"5m": 300, "15m": 900, "30m": 1800, "1h": 3600, "4h": 14400, "1D": 86400, "5D": 432000, "1M": 30 * 86400,
+          "6M": 182 * 86400, "1Y": 365 * 86400, "All": None}
 # history loaded at first, per resolution (seconds); scrolling back widens it, up to MAX_LOOKBACK
 DEFAULT_LOOKBACK = {"tick": 3600, "1s": 4 * 3600, "5s": 12 * 3600, "1m": 2 * 86400, "5m": 5 * 86400}
 MAX_LOOKBACK = 30 * 86400
@@ -59,17 +60,23 @@ class ChartSource:
     """A ticks table and what is built from it once and shared by every workspace and client:
     bars at the standard resolutions, the symbols seen so far, and a quotes table for watchlists.
 
-    Build it in the app script (not inside a component), so its tables live as long as the app."""
+    Build it in the app script (not inside a component), so its tables live as long as the app.
 
-    def __init__(self, ticks: Table, resolutions: Sequence[str] = STANDARD_RESOLUTIONS, *, by: str = "Sym"):
+    `history`: older ticks (the same columns, all before `ticks`) behind daily and weekly charts (nodes.ChartNodes).
+    `symbols`: a fixed universe, so chart requests don't snapshot the ticks' distinct symbols."""
+
+    def __init__(self, ticks: Table, resolutions: Sequence[str] = STANDARD_RESOLUTIONS, *, by: str = "Sym",
+                 history: Optional[Table] = None, symbols: Optional[Sequence[str]] = None):
         self.ticks = ticks
         self.by = by
         self.resolutions = tuple(resolutions)
+        self.history = history
+        self._known = list(symbols) if symbols is not None else None
         self._bars = {r: bars(ticks, r, by=by) for r in self.resolutions}
         self._symbols = ticks.select_distinct(by)
         self.quotes = quotes(ticks, by=by)
         self._spreads: dict = {}
-        self._standard: Optional[dict] = None
+        self._standard: dict[str, Table] = {}
         self._values: Optional[Table] = None
         self._nodes = None
 
@@ -80,7 +87,7 @@ class ChartSource:
         if self._nodes is None:
             from .nodes import ChartNodes
 
-            self._nodes = ChartNodes(self)
+            self._nodes = ChartNodes(self, history=self.history, symbols=self._known)
         return self._nodes
 
     def bars(self, resolution: str) -> Table:
@@ -108,10 +115,15 @@ class ChartSource:
             self._spreads[key] = bars(tk, resolution, by=self.by, size_col=None)
         return self._spreads[key].drop_columns(self.by)
 
+    def standard_bars(self, resolution: str) -> Table:
+        """bars_<resolution> with every standard study (data.STUDIES), built on first use from the shared bars."""
+        if resolution not in self._standard:
+            self._standard[resolution] = with_studies(self.bars(resolution), list(STUDIES.values()), by=self.by)
+        return self._standard[resolution]
+
     def standard(self) -> dict[str, Table]:
-        if self._standard is None:
-            self._standard = standard_set(self.ticks, self.resolutions, by=self.by)
-        return self._standard
+        """L0's standard set: {'bars_1m': ..., ...} at every standard resolution (data.standard_set's tables)."""
+        return {f"bars_{r}": self.standard_bars(r) for r in self.resolutions}
 
     def alert_values(self, resolutions: Sequence[str] = ("1m", "5m")) -> Table:
         """What alerts watch, one row per (Sym, Source): Source "Last" is the last trade; "<column>@<res>"
@@ -121,7 +133,7 @@ class ChartSource:
 
             parts = [self.quotes.view([f"Sym = {self.by}", "Source = `Last`", "Value = Last", "ValueNs = epochNanos(Updated)"])]
             for res in resolutions:
-                last = self.standard()[f"bars_{res}"].last_by(self.by)
+                last = self.standard_bars(res).last_by(self.by)
                 for col in self._study_columns():
                     parts.append(last.view([f"Sym = {self.by}", f"Source = `{col}@{res}`", f"Value = (double) {col}",
                                             "ValueNs = epochNanos(Updated)"]))
@@ -532,9 +544,16 @@ def chart_workspace(
     layout: str = "default",
     watchlist: bool = False,
     alerts: Optional[Table] = None,
+    follow: Optional[str] = None,
+    on_symbol=None,
+    resolutions: Optional[Sequence[str]] = None,
 ):
     """Toolbar + one to four charts + optional watchlist. The arguments are the first-time defaults
     (`studies` as standard keys: "EMA_20", "BB_20_2", "RSI_14", "Volume", ...).
+
+    follow, on_symbol: link the workspace to other panels. When `follow` changes, the active chart shows that
+    symbol; when the user picks a symbol here (toolbar or watchlist), `on_symbol(sym)` is called.
+    resolutions: the toolbar's interval menu (default: tick and the standard ones).
 
     annotations: the app's annotation table (store.annotation_table); with it, price lines and
     drawings persist per symbol, per `user` (None: a per-browser id), and the workspace's state
@@ -581,6 +600,14 @@ def chart_workspace(
             if k in patch and not valid_instrument(patch[k], symbols):
                 patch.pop(k)
         set_state(lambda s: apply_toolbar(s, patch, symbols))
+        if on_symbol is not None and patch.get("symbol") and patch["symbol"] != cur["symbol"]:
+            on_symbol(patch["symbol"])
+
+    def follow_symbol():
+        if follow and follow != cur["symbol"] and valid_instrument(follow, symbols):
+            set_state(lambda s: apply_toolbar(s, {"symbol": follow}, symbols))
+
+    ui.use_effect(follow_symbol, [follow, len(symbols)])
 
     def on_pane(i: int, f):
         set_state(lambda s: {**s, "panes": [f(p) if j == i else p for j, p in enumerate(s["panes"])]})
@@ -599,7 +626,7 @@ def chart_workspace(
     options = {
         "symbols": [{"key": s, "label": s} for s in symbols],
         "resolutions": [{"key": r, "label": "Tick" if r == "tick" else r, "group": _interval_group(r)}
-                        for r in ["tick", *resolution_options()]],
+                        for r in (resolutions or ["tick", *resolution_options()])],
         "ranges": [{"key": k, "label": k} for k in RANGES],
         "chartTypes": [{"key": k, "label": v} for k, v in CHART_TYPES.items()],
         "studies": [] if cur["resolution"] == "tick" else [

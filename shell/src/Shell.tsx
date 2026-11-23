@@ -356,7 +356,9 @@ function HeaderActions({ activePanel, containerApi, group }: IDockviewHeaderActi
     return () => d.dispose();
   }, [activePanel]);
   if (!activePanel) return null;
-  const params = activePanel.api.getParameters() as StoredParams;
+  // the panel's params, not api.getParameters(): dockview 8.8's api returns {} until the first updateParameters,
+  // so a panel that never changes its params (a curve, a watchlist) showed no link chip
+  const params = ((activePanel as { params?: StoredParams }).params ?? activePanel.api.getParameters()) as StoredParams;
   const linkable = '__link' in params;
   const link = params.__link ?? null;
   const color = LINK_GROUPS.find(g => g.key === link)?.color;
@@ -389,6 +391,23 @@ function HeaderActions({ activePanel, containerApi, group }: IDockviewHeaderActi
           </button>
         </>
       )}
+      {/* a floating or popped-out group can always go back into the layout */}
+      {where !== 'grid' && (
+        <button title="Dock into the layout" onClick={() => group.api.moveTo({ position: 'right' })}>
+          ⇲
+        </button>
+      )}
+      {/* every group, wherever it is, can be closed in one click (all its tabs) */}
+      <button
+        className="acme-shell-close"
+        title={group.panels.length > 1 ? `Close these ${group.panels.length} tabs` : 'Close'}
+        onClick={() => {
+          if (group.api.isMaximized()) group.api.exitMaximized();
+          group.api.close();
+        }}
+      >
+        ✕
+      </button>
     </div>
   );
 }
