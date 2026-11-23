@@ -28,6 +28,7 @@ import { titleOf, withPrefix, type PanelKind, type PanelProps, type StoredParams
 import { LAYOUT_VERSION, migrateLayout, type WorkspaceLayout, type WorkspaceStore, type WorkspaceSummary } from './workspace-store';
 import { useConnectionState } from './deephaven';
 import { EngineScope } from './engines';
+import { fill, snapDrag, toFree, toTiled, watchWindows } from './freeLayout';
 
 export interface ShellProps {
   kinds: PanelKind[];
@@ -45,6 +46,12 @@ export interface ShellProps {
   autosaveKey?: string | null;
   /** dockview's pop-out page (a blank HTML page on this origin) */
   popoutUrl?: string;
+  /**
+   * How panels are arranged when the user hasn't picked (they switch in the top bar; the choice is kept with
+   * autosaveKey): 'tiled', dockview's grid (a row's sizes add up to the row), or 'free', every panel a window that
+   * moves anywhere and resizes from any edge, edges snapping flush (see freeLayout.ts). Default 'tiled'.
+   */
+  defaultArrangement?: 'tiled' | 'free';
 }
 
 export type AddPanel = (
@@ -61,7 +68,35 @@ let cascade = 0;
 const newId = (kind: string) => `${kind}-${Date.now().toString(36)}-${(nextId++).toString(36)}`;
 const GROUP_KEYS = LINK_GROUPS.map(g => g.key);
 
-export function Shell({ kinds, store = null, defaultLayout, title, extra, bus: givenBus, autosaveKey = 'acme.shell.current', popoutUrl }: ShellProps) {
+export function Shell({ kinds, store = null, defaultLayout, title, extra, bus: givenBus, autosaveKey = 'acme.shell.current', popoutUrl, defaultArrangement = 'tiled' }: ShellProps) {
+  const freeKey = autosaveKey ? `${autosaveKey}.arrangement` : null;
+  const [free, setFreeState] = useState<boolean>(() => {
+    try {
+      const v = freeKey ? localStorage.getItem(freeKey) : null;
+      return (v ?? defaultArrangement) === 'free';
+    } catch {
+      return defaultArrangement === 'free';
+    }
+  });
+  const freeRef = useRef(free);
+  freeRef.current = free;
+  const dockRef = useRef<HTMLDivElement>(null);
+  const setFree = useCallback(
+    (on: boolean) => {
+      const api = apiRef.current;
+      if (!api || on === freeRef.current) return;
+      freeRef.current = on;
+      setFreeState(on);
+      try {
+        if (freeKey) localStorage.setItem(freeKey, on ? 'free' : 'tiled');
+      } catch {
+        /* not kept */
+      }
+      if (on && dockRef.current) toFree(api, dockRef.current);
+      else toTiled(api);
+    },
+    [freeKey],
+  );
   const bus = useMemo(() => givenBus ?? createLinkBus(), [givenBus]);
   const apiRef = useRef<DockviewApi | null>(null);
   const kindsRef = useRef(kinds);
@@ -157,6 +192,13 @@ export function Shell({ kinds, store = null, defaultLayout, title, extra, bus: g
         }
       }
       if (!restored) defaultLayout?.(e.api, add);
+      // free layout: a docked layout (the default one, or a tiled workspace) becomes windows once it has its sizes
+      const freeUp = () => {
+        if (freeRef.current && dockRef.current && e.api.groups.some(g => g.api.location.type === 'grid' && g.panels.length)) toFree(e.api, dockRef.current);
+      };
+      requestAnimationFrame(() => requestAnimationFrame(freeUp));
+      e.api.onDidLayoutFromJSON(() => requestAnimationFrame(freeUp));
+      e.api.onDidLayoutChange(() => watchWindows(e.api, () => freeRef.current));
       e.api.onDidLayoutChange(autosave);
       // blank spaces belong to the layout: a floating or popped-out window that empties (its last tab closed or
       // dragged into the layout) goes away
@@ -249,7 +291,7 @@ export function Shell({ kinds, store = null, defaultLayout, title, extra, bus: g
     },
     [add],
   );
-  const menu = useMemo(() => ({ kinds, counts, add }), [kinds, counts, add]);
+  const menu = useMemo(() => ({ kinds, counts, add, free }), [kinds, counts, add, free]);
 
   // dockview needs stable component functions: one wrapper per kind, made once per kinds list
   const components = useMemo(() => {
@@ -266,6 +308,14 @@ export function Shell({ kinds, store = null, defaultLayout, title, extra, bus: g
         <header className="acme-shell-bar">
           <span className="acme-shell-title">{title}</span>
           <AddMenu kinds={kinds} counts={counts} onAdd={addFromMenu} label="+ Panel" hint="Click: a new window · Ctrl+click: a tab in the active panel" />
+          <span className="acme-shell-arrange" title="Tiled: panels fill the grid. Free: windows anywhere, resizable from any edge, edges snap.">
+            <button className={free ? '' : 'on'} onClick={() => setFree(false)}>
+              Tiled
+            </button>
+            <button className={free ? 'on' : ''} onClick={() => setFree(true)}>
+              Free
+            </button>
+          </span>
           {store && (
             <>
               <select className="acme-shell-ws" value={current ?? ''} onChange={e => e.target.value && void open(e.target.value)} title={`Workspaces (${store.where})`}>
@@ -316,7 +366,7 @@ export function Shell({ kinds, store = null, defaultLayout, title, extra, bus: g
           {extra}
           <ConnectionDot />
         </header>
-        <div className="acme-shell-dock">
+        <div className={`acme-shell-dock${free ? ' acme-free' : ''}`} ref={dockRef}>
           <DockviewReact
             theme={themeDark}
             components={components}
@@ -324,6 +374,8 @@ export function Shell({ kinds, store = null, defaultLayout, title, extra, bus: g
             rightHeaderActionsComponent={HeaderActions}
             watermarkComponent={BlankSpace}
             closeEmptyGroups={false}
+            transformFloatingGroupDrag={ctx => (freeRef.current ? snapDrag(ctx) : undefined)}
+            floatingGroupDragHandle="tabbar"
             popoutUrl={popoutUrl}
           />
         </div>
@@ -392,8 +444,9 @@ function HeaderActions({ activePanel, containerApi, group }: IDockviewHeaderActi
     const d = activePanel.api.onDidParametersChange(() => rerender(x => x + 1));
     return () => d.dispose();
   }, [activePanel]);
+  const free = useContext(MenuContext)?.free ?? false;
   const where = group.api.location.type;
-  const split = where === 'grid' && (
+  const split = where === 'grid' && !free && (
     <>
       <button title="Blank space to the right (drag a window into it)" onClick={() => containerApi.addGroup({ referenceGroup: group.id, direction: 'right' })}>
         ◫
@@ -457,8 +510,14 @@ function HeaderActions({ activePanel, containerApi, group }: IDockviewHeaderActi
           </button>
         </>
       )}
-      {/* a floating or popped-out group can always go back into the layout */}
-      {where !== 'grid' && (
+      {/* free layout: grow into the blank space around the window */}
+      {free && where === 'floating' && (
+        <button title="Fill the blank space around it" onClick={() => fill(containerApi, group)}>
+          ⤢
+        </button>
+      )}
+      {/* a floating or popped-out group can always go back into the layout (in a free layout, windows are the layout) */}
+      {where !== 'grid' && !free && (
         <button title="Dock into the layout" onClick={() => group.api.moveTo({ position: 'right' })}>
           ⇲
         </button>
@@ -471,6 +530,7 @@ function HeaderActions({ activePanel, containerApi, group }: IDockviewHeaderActi
 }
 
 interface MenuState {
+  free: boolean;
   kinds: PanelKind[];
   counts: Record<string, number>;
   add: AddPanel;
@@ -526,7 +586,13 @@ function BlankSpace({ group }: IWatermarkPanelProps) {
   const m = useContext(MenuContext);
   return (
     <div className="acme-blank">
-      <div>{group ? 'Blank space: drag a window or tab here' : 'No panels'}</div>
+      <div>
+        {m?.free
+          ? 'Free layout: move windows anywhere (drag the tab bar), resize them from any edge; edges snap flush. ⤢ fills a window into the space around it.'
+          : group
+            ? 'Blank space: drag a window or tab here'
+            : 'No panels'}
+      </div>
       {m && (
         <AddMenu
           kinds={m.kinds}
